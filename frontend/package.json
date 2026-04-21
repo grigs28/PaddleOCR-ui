@@ -1,0 +1,25 @@
+{
+  "name": "paddleocr-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vueuse/core": "^12.0.0",
+    "axios": "^1.7.0",
+    "element-plus": "^2.9.0",
+    "markdown-it": "^14.1.1",
+    "pdfjs-dist": "^5.6.205",
+    "pinia": "^2.3.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "vite": "^6.0.0"
+  }
+}

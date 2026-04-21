@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  paddleocr-ui:
+    build: .
+    container_name: paddleocr-ui
+    ports:
+      - "5553:5553"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5553/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
