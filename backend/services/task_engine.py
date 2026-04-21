@@ -252,6 +252,17 @@ class TaskEngine:
 
                     logger.info(f"任务 {task_id} 完成, {ocr_result['pages']}页, {len(md_text)}字符, 用时{processing_seconds}秒")
 
+                    # 推送完成状态到前端
+                    try:
+                        from backend.ws.progress import progress_manager
+                        await progress_manager.send_progress(task.user_id, task_id, {
+                            "status": "completed",
+                            "progress": 100,
+                            "processing_time": processing_seconds,
+                        })
+                    except Exception:
+                        pass
+
                 except Exception as e:
                     progress_loop.cancel()
                     try:

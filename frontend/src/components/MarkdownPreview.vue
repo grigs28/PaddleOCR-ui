@@ -6,16 +6,6 @@
         <el-button :type="viewMode === 'text' ? 'primary' : ''" size="small" @click="viewMode = 'text'">纯文本</el-button>
       </el-button-group>
       <el-button size="small" @click="copyResult">复制</el-button>
-      <el-dropdown @command="handleDownload">
-        <el-button size="small">下载<el-icon><ArrowDown /></el-icon></el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="md">Markdown</el-dropdown-item>
-            <el-dropdown-item command="txt">纯文本</el-dropdown-item>
-            <el-dropdown-item command="docx">DOCX</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
     </div>
     <div style="flex: 1; overflow: auto; padding: 16px; background: #fff; border-radius: 4px;">
       <div v-if="!result" style="color: #c0c4cc; text-align: center; padding: 40px;">选择已完成任务查看结果</div>
