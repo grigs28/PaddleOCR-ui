@@ -243,13 +243,13 @@ async def batch_download(request: Request):
                     continue
                 base_name = os.path.splitext(task.input_filename or "result")[0]
 
-                # 打包结果目录中的所有文件（源文件 + 转换PDF + 结果文件）
+                # 打包结果目录中的所有文件（源文件 + 图片 + 结果文件）
                 if os.path.isdir(task.result_path):
-                    for fname in os.listdir(task.result_path):
-                        fpath = os.path.join(task.result_path, fname)
-                        if os.path.isfile(fpath):
-                            arcname = f"{base_name}/{fname}"
-                            zf.write(fpath, arcname)
+                    for root, dirs, files in os.walk(task.result_path):
+                        for fname in files:
+                            fpath = os.path.join(root, fname)
+                            arcname = os.path.relpath(fpath, task.result_path)
+                            zf.write(fpath, f"{base_name}/{arcname}")
 
     buf.seek(0)
     return StreamingResponse(
