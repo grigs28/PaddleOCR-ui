@@ -2,12 +2,14 @@ version: "3.8"
 
 services:
   paddleocr-ui:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     container_name: paddleocr-ui
     ports:
       - "5553:5553"
     env_file:
-      - .env
+      - ../.env
     volumes:
       - ./data:/app/data
     restart: unless-stopped

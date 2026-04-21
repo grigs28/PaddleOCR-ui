@@ -38,7 +38,14 @@
 ### Docker 部署（推荐）
 
 ```bash
-docker build -t paddleocr-ui .
+cd docker
+docker compose up -d --build
+```
+
+或手动构建：
+
+```bash
+docker build -t paddleocr-ui -f docker/Dockerfile .
 docker run -d -p 5553:5553 \
   -v ./data:/app/data \
   -e DB_HOST=your-db-host \

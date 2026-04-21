@@ -38,7 +38,14 @@ A web document OCR service based on PaddleOCR, supporting 22 file formats with a
 ### Docker (Recommended)
 
 ```bash
-docker build -t paddleocr-ui .
+cd docker
+docker compose up -d --build
+```
+
+Or build manually:
+
+```bash
+docker build -t paddleocr-ui -f docker/Dockerfile .
 docker run -d -p 5553:5553 \
   -v ./data:/app/data \
   -e DB_HOST=your-db-host \
