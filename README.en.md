@@ -2,15 +2,16 @@
 
 # PaddleOCR Web UI
 
-A web document OCR service based on PaddleOCR, supporting 22 file formats with a visual interface and REST API.
+A web document OCR service based on PaddleOCR, supporting 24 file formats with a visual interface and REST API.
 
 ---
 
 ## Features
 
 **File Processing**
-- **22 Format Support**: PDF, images (jpg/png/bmp/tiff/webp), Office documents (doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/csv/txt/html, etc.)
+- **24 Format Support**: PDF, images (jpg/png/bmp/tiff/webp), Office documents (doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/csv/txt/html), CAD drawings (dwg/dxf)
 - **Office Conversion**: LibreOffice headless converts to PDF before OCR; falls back to python-docx/openpyxl extraction when LibreOffice is unavailable
+- **CAD Recognition**: cad2x tool converts DWG/DXF to PDF for OCR, supports Chinese encoding and fonts
 - **Image Extraction**: Images from OCR results are automatically extracted and saved to images/ directory with relative path references in Markdown
 - **Multi-format Output**: Markdown, structured JSON (per-page per-block), plain text, DOCX, ZIP package download
 - **Source File Preservation**: Source files and converted PDFs are preserved in the result directory for reference

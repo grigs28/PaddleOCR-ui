@@ -73,7 +73,7 @@ X-API-Key: ak_xxxxx
 | `task_type` | string | 否 | 任务类型，固定 `ocr` |
 | `output_formats` | string | 否 | JSON 数组，输出格式。默认 `["markdown"]` |
 
-**支持的文件类型：** pdf, jpg, jpeg, png, bmp, tiff, tif, webp, docx, xlsx
+**支持的文件类型：** pdf, jpg, jpeg, png, bmp, tiff, tif, webp, doc, docx, odt, rtf, xls, xlsx, ods, csv, ppt, pptx, odp, txt, html, htm, dwg, dxf
 
 **支持的输出格式：** markdown, json, txt, docx
 
@@ -257,7 +257,7 @@ X-API-Key: ak_xxxxx
 
 | 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `format` | string | `md` | 下载格式：`md` / `txt` / `docx` |
+| `format` | string | `md` | 下载格式：`md` / `txt` / `docx` / `json` / `zip` |
 
 **请求示例：**
 
@@ -273,6 +273,14 @@ curl -O -H "X-API-Key: ak_xxxxx" \
 # 下载 DOCX
 curl -O -H "X-API-Key: ak_xxxxx" \
   "http://192.168.0.19:5553/api/v1/files/27/download?format=docx"
+
+# 下载 JSON（含结构化数据）
+curl -O -H "X-API-Key: ak_xxxxx" \
+  "http://192.168.0.19:5553/api/v1/files/27/download?format=json"
+
+# 下载 ZIP 打包（源文件 + 图片 + 全部结果）
+curl -O -H "X-API-Key: ak_xxxxx" \
+  "http://192.168.0.19:5553/api/v1/files/27/download?format=zip"
 ```
 
 ### 3.3 批量下载

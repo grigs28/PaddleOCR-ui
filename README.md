@@ -2,15 +2,16 @@
 
 # PaddleOCR Web UI
 
-基于 PaddleOCR 的 Web 文档识别服务，支持 22 种文件格式，提供可视化界面和 REST API。
+基于 PaddleOCR 的 Web 文档识别服务，支持 24 种文件格式，提供可视化界面和 REST API。
 
 ---
 
 ## 功能特性
 
 **文件处理**
-- **22 种格式支持**：PDF、图片（jpg/png/bmp/tiff/webp）、Office 文档（doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/csv/txt/html 等）
+- **24 种格式支持**：PDF、图片（jpg/png/bmp/tiff/webp）、Office 文档（doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/csv/txt/html）、CAD 图纸（dwg/dxf）
 - **Office 文档转换**：LibreOffice headless 转 PDF 后识别，无 LibreOffice 时 docx/xlsx 自动降级为 Python 文本提取
+- **CAD 图纸识别**：cad2x 工具将 DWG/DXF 转 PDF 后 OCR 识别，支持中文编码和字体
 - **图片提取**：OCR 识别结果中的图片自动提取保存到 images/ 目录，Markdown 中生成相对路径引用
 - **多格式输出**：Markdown、JSON（按页按块结构化）、纯文本、DOCX、ZIP 打包下载
 - **源文件保留**：结果目录保留源文件副本和 LibreOffice 转换的 PDF，方便对照

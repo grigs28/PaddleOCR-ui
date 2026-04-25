@@ -17,9 +17,10 @@ from backend.services.progress_estimator import progress_estimator
 from backend.services.doc_converter import (
     is_libreoffice_available, convert_to_pdf, is_legacy_office,
     extract_docx_text, extract_xlsx_text,
+    is_cad2x_available, convert_dwg_to_pdf,
 )
 from backend.utils.file_utils import (
-    is_image_file, is_pdf_file, is_doc_file,
+    is_image_file, is_pdf_file, is_doc_file, is_cad_file,
     get_file_extension, get_result_path,
 )
 
@@ -112,8 +113,8 @@ class TaskEngine:
                 await self._update_field(task_id, "started_at", started_at)
                 wall_start = time.monotonic()
 
-                # 判断是否为两阶段任务（Office 文档需先转 PDF）
-                two_phase = is_doc_file(filename)
+                # 判断是否为两阶段任务（Office/CAD 文档需先转 PDF）
+                two_phase = is_doc_file(filename) or is_cad_file(filename)
                 # 启动进度估算协程
                 progress_loop = asyncio.create_task(
                     self._progress_loop(task_id, task.user_id, file_size, wall_start, two_phase)
@@ -154,6 +155,31 @@ class TaskEngine:
                             else:
                                 await self._update_status(task_id, "failed", error=f"不支持的文件类型: {filename}")
                                 return
+
+                    elif is_cad_file(filename):
+                        # DWG/DXF: cad2x 转 PDF → OCR
+                        if not is_cad2x_available():
+                            await self._update_status(task_id, "failed", error="DWG/DXF 转换需要 cad2x 工具支持")
+                            progress_loop.cancel()
+                            try:
+                                await progress_loop
+                            except asyncio.CancelledError:
+                                pass
+                            return
+                        await self._push_progress(task_id, task.user_id, 0, phase="converting")
+                        pdf_path = await convert_dwg_to_pdf(file_path, os.path.dirname(file_path))
+                        converted_pdf_path = pdf_path
+                        await self._push_progress(task_id, task.user_id, 50, phase="ocr")
+                        if pdf_path:
+                            ocr_result = await ocr_client.recognize_pdf(pdf_path)
+                        else:
+                            await self._update_status(task_id, "failed", error="DWG/DXF 转 PDF 失败")
+                            progress_loop.cancel()
+                            try:
+                                await progress_loop
+                            except asyncio.CancelledError:
+                                pass
+                            return
 
                     elif is_image_file(filename):
                         ocr_result = await ocr_client.recognize_image(file_path)

@@ -7,13 +7,13 @@
       :auto-upload="false"
       :show-file-list="false"
       :on-change="handleFiles"
-      accept=".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp,.txt,.html,.htm"
+      accept=".pdf,.jpg,.jpeg,.png,.bmp,.tiff,.tif,.webp,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp,.txt,.html,.htm,.dwg,.dxf"
     >
       <el-icon style="font-size: 40px; color: #c0c4cc;"><UploadFilled /></el-icon>
       <div>拖拽文件到此处，或 <em>点击上传</em></div>
       <template #tip>
         <div style="color: #909399; font-size: 12px; margin-top: 4px;">
-          支持 PDF、图片、Office 文档等 22 种格式，单文件最大 1GB，支持多文件
+          支持 PDF、图片、Office 文档、CAD 等 24 种格式，单文件最大 1GB，支持多文件
         </div>
       </template>
     </el-upload>

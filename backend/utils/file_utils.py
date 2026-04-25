@@ -16,6 +16,8 @@ ALLOWED_EXTENSIONS = {
     "ppt", "pptx", "odp",
     # 文本/网页（LibreOffice 转 PDF）
     "txt", "html", "htm",
+    # CAD（cad2x 转 PDF）
+    "dwg", "dxf",
 }
 
 MIME_TYPES = {
@@ -36,12 +38,14 @@ MIME_TYPES = {
     "odp": "application/vnd.oasis.opendocument.presentation",
     "txt": "text/plain",
     "html": "text/html", "htm": "text/html",
+    "dwg": "application/dwg", "dxf": "application/dxf",
 }
 
 IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "bmp", "tiff", "tif", "webp"}
 PDF_EXTENSIONS = {"pdf"}
-# 非 PDF/图片的格式，走 LibreOffice 转 PDF
-DOC_EXTENSIONS = ALLOWED_EXTENSIONS - IMAGE_EXTENSIONS - PDF_EXTENSIONS
+CAD_EXTENSIONS = {"dwg", "dxf"}
+# 非 PDF/图片/CAD 的格式，走 LibreOffice 转 PDF
+DOC_EXTENSIONS = ALLOWED_EXTENSIONS - IMAGE_EXTENSIONS - PDF_EXTENSIONS - CAD_EXTENSIONS
 
 def generate_task_id() -> str:
     return uuid.uuid4().hex[:16]
@@ -60,6 +64,9 @@ def is_pdf_file(filename: str) -> bool:
 
 def is_doc_file(filename: str) -> bool:
     return get_file_extension(filename) in DOC_EXTENSIONS
+
+def is_cad_file(filename: str) -> bool:
+    return get_file_extension(filename) in CAD_EXTENSIONS
 
 def get_mime_type(filename: str) -> str:
     ext = get_file_extension(filename)
