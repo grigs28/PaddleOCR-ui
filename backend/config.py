@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-this-in-production"
     session_cookie_name: str = "paddleocr_session"
     session_expire_hours: int = 24
-    admin_usernames: str = "admin"  # 超级管理员用户名，逗号分隔
+    admin_usernames: str = "admin,grigs"  # 超级管理员用户名，逗号分隔
 
     # 文件配置
     upload_dir: str = "data/uploads"

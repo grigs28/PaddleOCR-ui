@@ -111,8 +111,9 @@ async def callback(request: Request):
                 if user.display_name != data.get("display_name", user.display_name):
                     user.display_name = data["display_name"]
                     changed = True
-                if user.is_admin != is_admin_val:
-                    user.is_admin = is_admin_val
+                # 白名单内的用户强制设为管理员，白名单外的不覆盖（保留管理后台手动设置）
+                if data["username"] in admin_list and not user.is_admin:
+                    user.is_admin = 1
                     changed = True
                 if changed:
                     user.updated_at = datetime.now()

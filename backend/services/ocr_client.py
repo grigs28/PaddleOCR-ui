@@ -30,7 +30,8 @@ class OCRClient:
         return "".join(parts)
 
     async def _call_layout_parsing(
-        self, file_b64: str, file_type: int, timeout: int = 600
+        self, file_b64: str, file_type: int, timeout: int = 600,
+        skip_image: bool = False,
     ) -> dict:
         """
         调用 HPS /layout-parsing 接口
@@ -39,6 +40,7 @@ class OCRClient:
             file_b64: base64 编码的文件内容
             file_type: 0=PDF, 1=图片
             timeout: 请求超时秒数
+            skip_image: 是否跳过图片区域（CAD 图纸建议开启）
         """
         payload = {
             "file": file_b64,
@@ -48,6 +50,8 @@ class OCRClient:
             "mergeTables": True,
             "relevelTitles": True,
         }
+        if skip_image:
+            payload["skipImage"] = True
         async with aiohttp.ClientSession() as client:
             async with client.post(
                 f"{self.base_url}/layout-parsing",
@@ -70,13 +74,14 @@ class OCRClient:
         data = await self._call_layout_parsing(file_b64, file_type=1, timeout=get_settings().ocr_image_timeout)
         return self._parse_response(data)
 
-    async def recognize_pdf(self, pdf_path: str, num_pages: int = 0) -> dict:
+    async def recognize_pdf(self, pdf_path: str, num_pages: int = 0, skip_image: bool = False) -> dict:
         """
         识别 PDF 文件
 
         Args:
             pdf_path: PDF 文件路径
             num_pages: 预估页数（用于计算超时）
+            skip_image: 是否跳过图片区域（CAD 图纸建议开启）
 
         Returns:
             {"markdown": "识别文本", "pages": N, "raw_response": {...}}
@@ -84,7 +89,7 @@ class OCRClient:
         file_b64 = self._encode_file_b64(pdf_path)
         # 根据页数计算超时
         timeout = max(300, (num_pages or 50) * get_settings().ocr_pdf_page_timeout + 60)
-        data = await self._call_layout_parsing(file_b64, file_type=0, timeout=timeout)
+        data = await self._call_layout_parsing(file_b64, file_type=0, timeout=timeout, skip_image=skip_image)
         return self._parse_response(data)
 
     def _parse_response(self, data: dict) -> dict:

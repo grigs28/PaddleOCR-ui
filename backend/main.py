@@ -72,8 +72,18 @@ _static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 if not os.path.isdir(_static_dir):
     _static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 if os.path.isdir(_static_dir):
-    from fastapi.staticfiles import StaticFiles
-    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
+    from starlette.staticfiles import StaticFiles
+    # 自定义 StaticFiles 禁用缓存，确保前端更新后浏览器加载最新版本
+    class NoCacheStaticFiles(StaticFiles):
+        async def __call__(self, scope, receive, send):
+            async def _send(message):
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"cache-control", b"no-cache, no-store, must-revalidate"))
+                    message["headers"] = headers
+                await send(message)
+            await super().__call__(scope, receive, _send)
+    app.mount("/", NoCacheStaticFiles(directory=_static_dir, html=True), name="static")
 
 
 if __name__ == "__main__":

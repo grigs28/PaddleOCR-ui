@@ -171,8 +171,7 @@ class TaskEngine:
                         converted_pdf_path = pdf_path
                         await self._push_progress(task_id, task.user_id, 50, phase="ocr")
                         if pdf_path:
-                            ocr_result = await ocr_client.recognize_pdf(pdf_path)
-                        else:
+                            ocr_result = await ocr_client.recognize_pdf(pdf_path, skip_image=True)
                             await self._update_status(task_id, "failed", error="DWG/DXF 转 PDF 失败")
                             progress_loop.cancel()
                             try:
