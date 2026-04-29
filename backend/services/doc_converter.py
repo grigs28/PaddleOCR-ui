@@ -53,7 +53,133 @@ def is_cad2x_available() -> bool:
 
 
 async def convert_dwg_to_pdf(input_path: str, output_dir: str) -> str | None:
-    """用 cad2x 将 DWG/DXF 转为 PDF。返回 PDF 路径，失败返回 None。"""
+    """DWG/DXF 转 PDF。优先用 ACAD 服务（按图框分页），回退到 cad2x。
+
+    ACAD 服务可能返回多个 PDF（每个图框一个），合并为一个 PDF 返回。
+    返回最终 PDF 路径，失败返回 None。
+    """
+    # 优先尝试 ACAD 服务
+    pdf_path = await _convert_dwg_via_acad(input_path, output_dir)
+    if pdf_path:
+        return pdf_path
+
+    # 回退到 cad2x
+    logger.info("ACAD 服务不可用或失败，回退到 cad2x")
+    return await _convert_dwg_via_cad2x(input_path, output_dir)
+
+
+async def _convert_dwg_via_acad(input_path: str, output_dir: str) -> str | None:
+    """通过 ACADxPDF 服务将 DWG 转 PDF。返回合并后的 PDF 路径。"""
+    import aiohttp
+    import zipfile
+
+    settings = get_settings()
+    acad_url = settings.acad_service_url.rstrip("/")
+
+    # 先检查服务是否可用
+    try:
+        async with aiohttp.ClientSession() as client:
+            async with client.get(f"{acad_url}/health", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status != 200:
+                    return None
+    except Exception:
+        return None
+
+    # 调用转换接口
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as client:
+            with open(input_path, "rb") as f:
+                data = aiohttp.FormData()
+                data.add_field("files", f, filename=os.path.basename(input_path))
+                async with client.post(
+                    f"{acad_url}/convert",
+                    data=data,
+                    timeout=aiohttp.ClientTimeout(total=settings.libreoffice_timeout),
+                ) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.warning(f"ACAD 服务返回 {resp.status}: {text[:200]}")
+                        return None
+                    zip_bytes = await resp.read()
+    except Exception as e:
+        logger.warning(f"ACAD 服务请求失败: {e}")
+        return None
+
+    if not zip_bytes:
+        return None
+
+    # 解压 ZIP，收集 PDF 和 DXF
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    pdf_files = []
+    dxf_files = []
+    temp_extract = os.path.join(output_dir, f"_acad_temp_{base}")
+    os.makedirs(temp_extract, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            zf.extractall(temp_extract)
+
+        for fname in sorted(os.listdir(temp_extract)):
+            lower = fname.lower()
+            if lower.endswith(".pdf"):
+                pdf_files.append(os.path.join(temp_extract, fname))
+            elif lower.endswith(".dxf"):
+                dxf_files.append(os.path.join(temp_extract, fname))
+
+        if not pdf_files:
+            logger.warning("ACAD 返回 ZIP 中无 PDF 文件")
+            shutil.rmtree(temp_extract, ignore_errors=True)
+            return None
+
+        # 保存 DXF 到输出目录
+        for dxf in dxf_files:
+            dxf_dest = os.path.join(output_dir, os.path.basename(dxf))
+            if not os.path.exists(dxf_dest):
+                shutil.move(dxf, dxf_dest)
+                logger.info(f"DXF 已保存: {dxf_dest}")
+
+        # 保存单独的图框 PDF 到输出目录
+        saved_pdfs = []
+        for i, pdf in enumerate(pdf_files):
+            page_dest = os.path.join(output_dir, os.path.basename(pdf))
+            if not os.path.exists(page_dest):
+                shutil.copy2(pdf, page_dest)
+            saved_pdfs.append(page_dest)
+
+        if len(pdf_files) == 1:
+            final_path = saved_pdfs[0]
+            shutil.rmtree(temp_extract, ignore_errors=True)
+            logger.info(f"ACAD 转换成功（单页）: {final_path}")
+            return final_path
+
+        # 多个 PDF，合并为一个给 OCR 用
+        final_path = os.path.join(output_dir, f"{base}.pdf")
+        await _merge_pdfs(saved_pdfs, final_path)
+        shutil.rmtree(temp_extract, ignore_errors=True)
+        logger.info(f"ACAD 转换成功（{len(pdf_files)} 页合并）: {final_path}")
+        return final_path
+
+    except Exception as e:
+        logger.warning(f"ACAD 结果处理失败: {e}")
+        shutil.rmtree(temp_extract, ignore_errors=True)
+        return None
+
+
+async def _merge_pdfs(pdf_paths: list[str], output_path: str) -> None:
+    """合并多个 PDF 文件为一个（使用系统 pdfunite）"""
+    proc = await asyncio.create_subprocess_exec(
+        "pdfunite", *pdf_paths, output_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise Exception(f"pdfunite 失败: {stderr.decode()[:200]}")
+
+
+async def _convert_dwg_via_cad2x(input_path: str, output_dir: str) -> str | None:
+    """用 cad2x 将 DWG/DXF 转为 PDF（单页）。返回 PDF 路径，失败返回 None。"""
     if not is_cad2x_available():
         logger.error("cad2x 不可用")
         return None

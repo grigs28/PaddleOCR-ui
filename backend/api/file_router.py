@@ -259,6 +259,43 @@ async def batch_download(request: Request):
     )
 
 
+@router.delete("")
+async def delete_all_files(request: Request):
+    """全部删除"""
+    user_id, is_admin = await _get_user_id_and_role(request)
+    import shutil
+
+    async with async_session() as session:
+        query = select(Task)
+        if not is_admin:
+            query = query.where(Task.user_id == user_id).where(Task.deleted == 0)
+        else:
+            query = query.where(Task.deleted != 2)
+        result = await session.execute(query)
+        tasks = result.scalars().all()
+
+        deleted = 0
+        for task in tasks:
+            # 管理员硬删文件
+            if is_admin:
+                if task.input_file_path and os.path.exists(task.input_file_path):
+                    parent = os.path.dirname(task.input_file_path)
+                    if os.path.isdir(parent):
+                        shutil.rmtree(parent, ignore_errors=True)
+                if task.result_path and os.path.exists(task.result_path):
+                    shutil.rmtree(task.result_path, ignore_errors=True)
+                task.deleted = 2
+            else:
+                if task.status in ("pending", "queued", "processing"):
+                    task.status = "cancelled"
+                task.deleted = 1
+            deleted += 1
+
+        await session.commit()
+
+    return {"message": f"已删除 {deleted} 条记录", "deleted": deleted}
+
+
 @router.delete("/{file_id}")
 async def delete_file(file_id: int, request: Request):
     user_id, is_admin = await _get_user_id_and_role(request)

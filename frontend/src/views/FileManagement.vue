@@ -18,6 +18,7 @@
         <el-button type="danger" :disabled="selectedIds.length === 0" @click="batchDelete">
           删除选中 ({{ selectedIds.length }})
         </el-button>
+        <el-button type="danger" plain @click="deleteAll" :disabled="fileStore.total === 0">全部删除</el-button>
       </div>
     </div>
     <el-table :data="fileStore.files" v-loading="fileStore.loading"
@@ -86,7 +87,7 @@ import { useFileStore } from '../stores/file'
 import { useTaskStore } from '../stores/task'
 import { useUserStore } from '../stores/user'
 import { formatSize, statusText, statusType, formatTime } from '../utils/format'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const fileStore = useFileStore()
 const taskStore = useTaskStore()
@@ -121,6 +122,17 @@ const batchDelete = async () => {
   }
   selectedIds.value = []
   ElMessage.success(isAdmin.value ? '已彻底删除' : '已删除')
+}
+
+const deleteAll = async () => {
+  await ElMessageBox.confirm(
+    isAdmin.value ? '确认删除所有文件？管理员操作将彻底删除，不可恢复！' : '确认删除所有文件？',
+    '全部删除',
+    { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+  )
+  await fileStore.deleteAll()
+  taskStore.clearTasks()
+  ElMessage.success('已全部删除')
 }
 
 const formatDuration = (seconds) => {

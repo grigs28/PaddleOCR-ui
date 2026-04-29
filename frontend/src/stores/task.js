@@ -101,6 +101,12 @@ export const useTaskStore = defineStore('task', {
         this.selectedPreview = null
       }
     },
+    clearTasks() {
+      this.activeTasks = []
+      this.selectedTaskId = null
+      this.selectedResult = ''
+      this.selectedPreview = null
+    },
     async restoreFromApi() {
       await this.fetchActive()
       // 如果有活跃任务，选中第一个

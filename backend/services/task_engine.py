@@ -171,7 +171,8 @@ class TaskEngine:
                         converted_pdf_path = pdf_path
                         await self._push_progress(task_id, task.user_id, 50, phase="ocr")
                         if pdf_path:
-                            ocr_result = await ocr_client.recognize_pdf(pdf_path, skip_image=True)
+                            ocr_result = await ocr_client.recognize_pdf(pdf_path)
+                        else:
                             await self._update_status(task_id, "failed", error="DWG/DXF 转 PDF 失败")
                             progress_loop.cancel()
                             try:
@@ -259,21 +260,41 @@ class TaskEngine:
                     processing_seconds = int(time.monotonic() - wall_start)
                     completed_at = datetime.now()
 
-                    async with async_session() as s:
-                        await s.execute(
-                            update(Task)
-                            .where(Task.id == task_id)
-                            .values(
-                                result_path=result_dir,
-                                progress=100,
-                                page_total=ocr_result["pages"],
-                                page_current=ocr_result["pages"],
-                                processing_time=processing_seconds,
-                                completed_at=completed_at,
-                                status="completed",
+                    # API 任务（priority=1）：完成后自动清理文件和数据库
+                    is_api_task = task.priority == 1
+                    if is_api_task:
+                        # 先更新完成状态（含 result_path），让 API 能读到结果
+                        async with async_session() as s:
+                            await s.execute(
+                                update(Task)
+                                .where(Task.id == task_id)
+                                .values(
+                                    result_path=result_dir,
+                                    progress=100,
+                                    page_total=ocr_result["pages"],
+                                    page_current=ocr_result["pages"],
+                                    processing_time=processing_seconds,
+                                    completed_at=completed_at,
+                                    status="completed",
+                                )
                             )
-                        )
-                        await s.commit()
+                            await s.commit()
+                    else:
+                        async with async_session() as s:
+                            await s.execute(
+                                update(Task)
+                                .where(Task.id == task_id)
+                                .values(
+                                    result_path=result_dir,
+                                    progress=100,
+                                    page_total=ocr_result["pages"],
+                                    page_current=ocr_result["pages"],
+                                    processing_time=processing_seconds,
+                                    completed_at=completed_at,
+                                    status="completed",
+                                )
+                            )
+                            await s.commit()
 
                     logger.info(f"任务 {task_id} 完成, {ocr_result['pages']}页, {len(md_text)}字符, 用时{processing_seconds}秒")
 
@@ -287,6 +308,10 @@ class TaskEngine:
                         })
                     except Exception:
                         pass
+
+                    # API 任务：延迟清理（给 API 客户端 30 秒读取结果）
+                    if is_api_task:
+                        asyncio.create_task(self._cleanup_api_task(task_id, result_dir, file_path))
 
                 except Exception as e:
                     progress_loop.cancel()
@@ -351,6 +376,25 @@ class TaskEngine:
             await progress_manager.send_progress(user_id, task_id, data)
         except Exception:
             pass
+
+    async def _cleanup_api_task(self, task_id: int, result_dir: str, input_file_path: str):
+        """API 任务延迟 30 秒后清理文件和数据库记录"""
+        await asyncio.sleep(30)
+        try:
+            # 删除文件
+            if result_dir and os.path.isdir(result_dir):
+                shutil.rmtree(result_dir, ignore_errors=True)
+            if input_file_path and os.path.exists(input_file_path):
+                parent = os.path.dirname(input_file_path)
+                if os.path.isdir(parent):
+                    shutil.rmtree(parent, ignore_errors=True)
+            # 删除数据库记录
+            async with async_session() as s:
+                await s.execute(Task.__table__.delete().where(Task.id == task_id))
+                await s.commit()
+            logger.info(f"API 任务 {task_id} 已自动清理")
+        except Exception as e:
+            logger.warning(f"API 任务 {task_id} 清理失败: {e}")
 
     async def _update_status(self, task_id: int, status: str, error: str = None):
         async with async_session() as session:

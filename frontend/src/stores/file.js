@@ -39,5 +39,9 @@ export const useFileStore = defineStore('file', {
       await axios.delete(`/api/v1/files/${fileId}`)
       await this.fetchFiles()
     },
+    async deleteAll() {
+      await axios.delete('/api/v1/files')
+      await this.fetchFiles()
+    },
   },
 })

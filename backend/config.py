@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # OCR 服务配置 (HPS 产线服务)
     ocr_service_url: str = "http://localhost:5564"
 
+    # ACAD DWG 转 PDF 服务配置
+    acad_service_url: str = "http://192.168.0.6:5557"
+
     # OOS 统一登录配置
     yz_login_url: str = "http://localhost:5551"
     callback_url: str = "http://localhost:5553/auth/callback"
