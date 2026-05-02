@@ -11,7 +11,7 @@
 **文件处理**
 - **24 种格式支持**：PDF、图片（jpg/png/bmp/tiff/webp）、Office 文档（doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/csv/txt/html）、CAD 图纸（dwg/dxf）
 - **Office 文档转换**：LibreOffice headless 转 PDF 后识别，无 LibreOffice 时 docx/xlsx 自动降级为 Python 文本提取
-- **CAD 图纸识别**：cad2x 工具将 DWG/DXF 转 PDF 后 OCR 识别，支持中文编码和字体
+- **CAD 图纸识别**：ACADxPDF 服务按图框分页转 PDF+DXF，直接从 DXF 提取文字（100% 准确），无 DXF 时回退 OCR
 - **图片提取**：OCR 识别结果中的图片自动提取保存到 images/ 目录，Markdown 中生成相对路径引用
 - **多格式输出**：Markdown、JSON（按页按块结构化）、纯文本、DOCX、ZIP 打包下载
 - **源文件保留**：结果目录保留源文件副本和 LibreOffice 转换的 PDF，方便对照
@@ -86,7 +86,23 @@ python -m backend.main
 
 ## 支持格式
 
-### 直接 OCR 识别
+### 直接 OCR 识别（图片/PDF）
+
+| 格式 | 说明 |
+|--------|---------|
+| pdf | PDF 文档 |
+| jpg / jpeg | JPEG 图片 |
+| png | PNG 图片 |
+| bmp | BMP 图片 |
+| tiff / tif | TIFF 图片 |
+| webp | WebP 图片 |
+
+### DXF 文字提取（CAD 图纸）
+
+| 格式 | 说明 |
+|--------|---------|
+| dwg | AutoCAD 图纸 → ACADxPDF 转 PDF+DXF → DXF 文字直接提取 |
+| dxf | DXF 文件直接提取文字，按坐标排序、按字号识别标题 |
 
 | 格式 | 说明 |
 |--------|---------|
@@ -158,15 +174,19 @@ curl -O http://localhost:5553/api/v1/files/98/download?format=json \
 │   Vue 3     │────▶│   FastAPI    │────▶│  PaddleOCR  │
 │  前端界面    │◀────│   后端服务    │◀────│  HPS 产线    │
 └─────────────┘     └──────┬───────┘     └─────────────┘
-                    ┌──────┴───────┐
-                    │  PostgreSQL  │
-                    │  (openGauss) │
-                    └──────────────┘
+                    ┌──────┼───────┐
+                    │      ▼       │
+              ┌─────┴────────┐ ┌───┴──────────┐
+              │  PostgreSQL  │ │ ACADxPDF 服务 │
+              │  (openGauss) │ │ DWG→PDF+DXF   │
+              └──────────────┘ └──────────────┘
 ```
 
 - **前端**: Vue 3 + Element Plus + Pinia
 - **后端**: FastAPI + SQLAlchemy async + WebSocket
 - **OCR 引擎**: PaddleOCR HPS 产线服务
+- **CAD 转换**: ACADxPDF 服务（AutoCAD 按图框分页）+ cad2x 备用
+- **DXF 提取**: ezdxf 库直接提取文字实体，按坐标排序，按字号识别标题
 - **文档转换**: LibreOffice headless
 - **任务队列**: asyncio.PriorityQueue（3 级优先级）
 
