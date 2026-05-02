@@ -1,4 +1,4 @@
-"""Office 文档处理：docx/xlsx 文本提取 + LibreOffice 转 PDF（可选）+ cad2x DWG 转 PDF"""
+"""Office 文档处理：docx/xlsx 文本提取 + LibreOffice 转 PDF（可选）+ DWG DXF 文字提取"""
 
 import asyncio
 import io
@@ -410,4 +410,132 @@ def extract_xlsx_text(file_path: str) -> dict:
         "markdown": markdown,
         "pages": len(structured_pages),
         "structured": structured_pages,
+    }
+
+
+def extract_dxf_text(dxf_path: str) -> dict:
+    """从 DXF 文件提取文字内容，生成 Markdown。
+    按 Y 坐标从上到下排列，大字号的作为标题，同行文字自动拼接。
+
+    Returns:
+        {"markdown": str, "pages": 1, "structured": [...], "images": {}}
+    """
+    import ezdxf
+
+    doc = ezdxf.readfile(dxf_path)
+    msp = doc.modelspace()
+
+    # 收集所有文字实体
+    raw_texts = []
+    for e in msp.query('TEXT MTEXT'):
+        try:
+            if hasattr(e, 'plain_text'):
+                content = e.plain_text()
+            else:
+                content = e.dxf.text
+        except Exception:
+            continue
+
+        content = content.strip()
+        if not content:
+            continue
+
+        # 获取位置和字号
+        try:
+            insert = e.dxf.insert
+            x = float(insert[0]) if hasattr(insert, '__getitem__') else 0.0
+            y = float(insert[1]) if len(insert) > 1 else 0.0
+        except Exception:
+            x, y = 0.0, 0.0
+
+        try:
+            height = float(e.dxf.height)
+        except Exception:
+            height = 0.0
+
+        raw_texts.append({
+            'x': x,
+            'y': y,
+            'content': content,
+            'height': height,
+        })
+
+    if not raw_texts:
+        return {
+            "markdown": "",
+            "pages": 1,
+            "structured": [],
+            "images": {},
+        }
+
+    # 按 Y 倒序（从上到下），Y 相同按 X 从左到右
+    raw_texts.sort(key=lambda t: (-t['y'], t['x']))
+
+    # 将 Y 坐标接近的文字归为同一行（容差 = 字号的 0.5 倍）
+    lines = []
+    current_line = [raw_texts[0]]
+    for t in raw_texts[1:]:
+        prev = current_line[0]
+        tolerance = max(prev['height'], t['height']) * 0.5
+        if abs(t['y'] - prev['y']) <= tolerance:
+            current_line.append(t)
+        else:
+            lines.append(current_line)
+            current_line = [t]
+    lines.append(current_line)
+
+    # 生成 Markdown，根据字号判断标题级别
+    md_parts = []
+    blocks = []
+    block_id = 0
+
+    # 统计字号分布，找标题阈值
+    heights = [t['height'] for t in raw_texts if t['height'] > 0]
+    avg_height = sum(heights) / len(heights) if heights else 300
+
+    for line_texts in lines:
+        # 拼接同行文字
+        line_texts.sort(key=lambda t: t['x'])  # 按 X 从左到右
+        text = ' '.join(t['content'] for t in line_texts)
+        max_h = max(t['height'] for t in line_texts)
+
+        if not text.strip():
+            continue
+
+        # 根据字号判断标题
+        if max_h > avg_height * 2.5:
+            md_parts.append(f"# {text}")
+            label = "title"
+        elif max_h > avg_height * 1.8:
+            md_parts.append(f"## {text}")
+            label = "section_title"
+        elif max_h > avg_height * 1.3:
+            md_parts.append(f"### {text}")
+            label = "subsection_title"
+        else:
+            md_parts.append(text)
+            label = "text"
+
+        blocks.append({
+            "id": block_id,
+            "global_id": block_id,
+            "type": label,
+            "content": text,
+            "bbox": None,
+            "order": None,
+        })
+        block_id += 1
+
+    markdown = "\n\n".join(md_parts)
+
+    return {
+        "markdown": markdown,
+        "pages": 1,
+        "structured": [{
+            "page": 1,
+            "width": None,
+            "height": None,
+            "blocks": blocks,
+        }],
+        "images": {},
     }

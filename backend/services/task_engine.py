@@ -18,6 +18,7 @@ from backend.services.doc_converter import (
     is_libreoffice_available, convert_to_pdf, is_legacy_office,
     extract_docx_text, extract_xlsx_text,
     is_cad2x_available, convert_dwg_to_pdf,
+    extract_dxf_text,
 )
 from backend.utils.file_utils import (
     is_image_file, is_pdf_file, is_doc_file, is_cad_file,
@@ -157,23 +158,29 @@ class TaskEngine:
                                 return
 
                     elif is_cad_file(filename):
-                        # DWG/DXF: cad2x 转 PDF → OCR
-                        if not is_cad2x_available():
-                            await self._update_status(task_id, "failed", error="DWG/DXF 转换需要 cad2x 工具支持")
-                            progress_loop.cancel()
-                            try:
-                                await progress_loop
-                            except asyncio.CancelledError:
-                                pass
-                            return
+                        # DWG/DXF: ACAD/cad2x 转 PDF+DXF → 直接从 DXF 提取文字（不走 OCR）
+                        dxf_source_path = None
                         await self._push_progress(task_id, task.user_id, 0, phase="converting")
                         pdf_path = await convert_dwg_to_pdf(file_path, os.path.dirname(file_path))
                         converted_pdf_path = pdf_path
-                        await self._push_progress(task_id, task.user_id, 50, phase="ocr")
-                        if pdf_path:
+                        await self._push_progress(task_id, task.user_id, 80, phase="ocr")
+
+                        # 查找 DXF 文件（ACAD 服务会在同一目录生成）
+                        dxf_path = None
+                        output_dir = os.path.dirname(file_path)
+                        for f in os.listdir(output_dir):
+                            if f.lower().endswith('.dxf'):
+                                dxf_path = os.path.join(output_dir, f)
+                                break
+
+                        if dxf_path:
+                            ocr_result = extract_dxf_text(dxf_path)
+                            dxf_source_path = dxf_path
+                        elif pdf_path:
+                            # 无 DXF 时回退到 OCR
                             ocr_result = await ocr_client.recognize_pdf(pdf_path)
                         else:
-                            await self._update_status(task_id, "failed", error="DWG/DXF 转 PDF 失败")
+                            await self._update_status(task_id, "failed", error="DWG/DXF 转换失败")
                             progress_loop.cancel()
                             try:
                                 await progress_loop
@@ -218,6 +225,11 @@ class TaskEngine:
                     # 保存源文件到结果目录
                     source_dest = os.path.join(result_dir, f"source_{filename}")
                     shutil.copy2(file_path, source_dest)
+
+                    # CAD 文件：保留 DXF 源文件到结果目录
+                    if dxf_source_path and os.path.exists(dxf_source_path):
+                        dxf_dest = os.path.join(result_dir, os.path.basename(dxf_source_path))
+                        shutil.copy2(dxf_source_path, dxf_dest)
 
                     # Office 文档：保留 LibreOffice 转换的 PDF
                     if converted_pdf_path and os.path.exists(converted_pdf_path):
