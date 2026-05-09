@@ -22,8 +22,11 @@
       <span style="font-size: 12px; color: #909399;">输出格式：</span>
       <el-checkbox-group v-model="uploadStore.outputFormats" size="small">
         <el-checkbox v-for="fmt in uploadStore.availableFormats" :key="fmt.value"
-          :label="fmt.value">{{ fmt.label }}</el-checkbox>
+          :label="fmt.value" v-show="!fmt.pdfOnly || uploadStore.hasPdfFiles">{{ fmt.label }}</el-checkbox>
       </el-checkbox-group>
+    </div>
+    <div v-if="uploadStore.hasMixedCadPdf" style="margin-top: 4px; color: #f56c6c; font-size: 12px;">
+      不能同时上传 DWG 和 PDF 文件
     </div>
     <!-- 待上传文件列表 -->
     <div v-if="uploadStore.files.length" style="margin-top: 12px;">
@@ -42,7 +45,8 @@
       </div>
       <div style="margin-top: 8px; display: flex; gap: 8px;">
         <el-button type="primary" size="small" @click="uploadStore.startUpload()"
-          :loading="uploadStore.uploading" :disabled="uploadStore.pendingFiles.length === 0 || uploadStore.outputFormats.length === 0">
+          :loading="uploadStore.uploading"
+          :disabled="uploadStore.pendingFiles.length === 0 || uploadStore.outputFormats.length === 0 || uploadStore.hasMixedCadPdf">
           开始转换 ({{ uploadStore.pendingFiles.length }})
         </el-button>
         <el-button size="small" @click="uploadStore.clearCompleted()">清除已完成</el-button>

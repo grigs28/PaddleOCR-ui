@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 
 from backend.config import get_settings
@@ -68,102 +69,225 @@ async def convert_dwg_to_pdf(input_path: str, output_dir: str) -> str | None:
     return await _convert_dwg_via_cad2x(input_path, output_dir)
 
 
-async def _convert_dwg_via_acad(input_path: str, output_dir: str) -> str | None:
-    """通过 ACADxPDF 服务将 DWG 转 PDF。返回合并后的 PDF 路径。"""
+async def _acad_request(client, method: str, path: str, **kwargs):
+    """发送带认证的 ACAD API 请求"""
+    import aiohttp
+    settings = get_settings()
+    url = settings.acad_service_url.rstrip("/") + path
+    headers = kwargs.pop("headers", {})
+    if settings.acad_service_apikey:
+        headers["x-api-key"] = settings.acad_service_apikey
+    return await client.request(method, url, headers=headers, **kwargs)
+
+
+async def _poll_acad_task(client, task_path: str, task_id: str) -> dict | None:
+    """轮询 ACAD 任务状态，返回完成的 task 数据或 None"""
+    settings = get_settings()
+    timeout = settings.libreoffice_timeout
+    deadline = asyncio.get_event_loop().time() + timeout
+
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            resp = await _acad_request(client, "GET", f"{task_path}/{task_id}")
+            if resp.status == 200:
+                data = await resp.json()
+                if data.get("status") == "done":
+                    return data
+                if data.get("status") == "failed":
+                    errors = [f["error"] for f in data.get("files", []) if f.get("error")]
+                    logger.warning(f"ACAD 任务失败: {errors}")
+                    return None
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.warning(f"ACAD 轮询异常: {e}")
+            await asyncio.sleep(5)
+    logger.warning(f"ACAD 任务超时 ({timeout}s)")
+    return None
+
+
+async def _download_acad_result(task_id: str, download_path: str, output_dir: str) -> list[str]:
+    """下载 ACAD 任务结果 ZIP 并解压到 output_dir，返回解压后的文件路径列表"""
     import aiohttp
     import zipfile
 
+    async with aiohttp.ClientSession() as client:
+        resp = await _acad_request(client, "GET", f"{download_path}/{task_id}")
+        if resp.status != 200:
+            logger.warning(f"ACAD 下载失败: {resp.status}")
+            return []
+        zip_bytes = await resp.read()
+
+    if not zip_bytes:
+        return []
+
+    temp_extract = os.path.join(output_dir, f"_acad_temp_{task_id[:8]}")
+    os.makedirs(temp_extract, exist_ok=True)
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            zf.extractall(temp_extract)
+        result_files = []
+        for root, dirs, files in os.walk(temp_extract):
+            for f in files:
+                result_files.append(os.path.join(root, f))
+        return result_files
+    except Exception as e:
+        logger.warning(f"ACAD 解压失败: {e}")
+        shutil.rmtree(temp_extract, ignore_errors=True)
+        return []
+
+
+async def _convert_dwg_via_acad(input_path: str, output_dir: str) -> str | None:
+    """通过 ACADxPDF 服务将 DWG 转 PDF+DXF（异步轮询模式）。
+    返回合并后的 PDF 路径，DXF 保存在同目录。
+    """
+    import aiohttp
+
     settings = get_settings()
-    acad_url = settings.acad_service_url.rstrip("/")
 
     # 先检查服务是否可用
     try:
         async with aiohttp.ClientSession() as client:
-            async with client.get(f"{acad_url}/health", timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status != 200:
-                    return None
+            resp = await _acad_request(client, "GET", "/health")
+            if resp.status != 200:
+                return None
     except Exception:
         return None
 
-    # 调用转换接口
+    # 提交转换任务
     try:
-        import aiohttp
         async with aiohttp.ClientSession() as client:
             with open(input_path, "rb") as f:
                 data = aiohttp.FormData()
                 data.add_field("files", f, filename=os.path.basename(input_path))
-                async with client.post(
-                    f"{acad_url}/convert",
-                    data=data,
-                    timeout=aiohttp.ClientTimeout(total=settings.libreoffice_timeout),
-                ) as resp:
-                    if resp.status != 200:
-                        text = await resp.text()
-                        logger.warning(f"ACAD 服务返回 {resp.status}: {text[:200]}")
-                        return None
-                    zip_bytes = await resp.read()
+                resp = await _acad_request(client, "POST", "/convert", data=data,
+                                           timeout=aiohttp.ClientTimeout(total=30))
+                if resp.status != 200:
+                    text = await resp.text()
+                    logger.warning(f"ACAD 提交失败 {resp.status}: {text[:200]}")
+                    return None
+                result = await resp.json()
+                task_id = result.get("task_id")
+                if not task_id:
+                    return None
     except Exception as e:
-        logger.warning(f"ACAD 服务请求失败: {e}")
+        logger.warning(f"ACAD 提交异常: {e}")
         return None
 
-    if not zip_bytes:
+    # 轮询任务状态
+    async with aiohttp.ClientSession() as client:
+        task_data = await _poll_acad_task(client, "/tasks", task_id)
+    if not task_data:
         return None
 
-    # 解压 ZIP，收集 PDF 和 DXF
-    base = os.path.splitext(os.path.basename(input_path))[0]
+    # 下载结果
+    extracted = await _download_acad_result(task_id, "/download", output_dir)
+    if not extracted:
+        return None
+
+    # 分类文件
     pdf_files = []
     dxf_files = []
-    temp_extract = os.path.join(output_dir, f"_acad_temp_{base}")
-    os.makedirs(temp_extract, exist_ok=True)
+    for f in extracted:
+        lower = f.lower()
+        if lower.endswith(".pdf"):
+            pdf_files.append(f)
+        elif lower.endswith(".dxf"):
+            dxf_files.append(f)
 
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            zf.extractall(temp_extract)
+    # 移动 DXF 到 output_dir
+    for dxf in dxf_files:
+        dxf_dest = os.path.join(output_dir, os.path.basename(dxf))
+        if not os.path.exists(dxf_dest):
+            shutil.move(dxf, dxf_dest)
+            logger.info(f"DXF 已保存: {dxf_dest}")
 
-        for fname in sorted(os.listdir(temp_extract)):
-            lower = fname.lower()
-            if lower.endswith(".pdf"):
-                pdf_files.append(os.path.join(temp_extract, fname))
-            elif lower.endswith(".dxf"):
-                dxf_files.append(os.path.join(temp_extract, fname))
+    if not pdf_files:
+        shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
+        return None
 
-        if not pdf_files:
-            logger.warning("ACAD 返回 ZIP 中无 PDF 文件")
-            shutil.rmtree(temp_extract, ignore_errors=True)
-            return None
+    # 移动 PDF 到 output_dir
+    saved_pdfs = []
+    for pdf in pdf_files:
+        dest = os.path.join(output_dir, os.path.basename(pdf))
+        if not os.path.exists(dest):
+            shutil.copy2(pdf, dest)
+        saved_pdfs.append(dest)
 
-        # 保存 DXF 到输出目录
-        for dxf in dxf_files:
-            dxf_dest = os.path.join(output_dir, os.path.basename(dxf))
-            if not os.path.exists(dxf_dest):
-                shutil.move(dxf, dxf_dest)
-                logger.info(f"DXF 已保存: {dxf_dest}")
+    base = os.path.splitext(os.path.basename(input_path))[0]
 
-        # 保存单独的图框 PDF 到输出目录
-        saved_pdfs = []
-        for i, pdf in enumerate(pdf_files):
-            page_dest = os.path.join(output_dir, os.path.basename(pdf))
-            if not os.path.exists(page_dest):
-                shutil.copy2(pdf, page_dest)
-            saved_pdfs.append(page_dest)
-
-        if len(pdf_files) == 1:
-            final_path = saved_pdfs[0]
-            shutil.rmtree(temp_extract, ignore_errors=True)
-            logger.info(f"ACAD 转换成功（单页）: {final_path}")
-            return final_path
-
-        # 多个 PDF，合并为一个给 OCR 用
-        final_path = os.path.join(output_dir, f"{base}.pdf")
-        await _merge_pdfs(saved_pdfs, final_path)
-        shutil.rmtree(temp_extract, ignore_errors=True)
-        logger.info(f"ACAD 转换成功（{len(pdf_files)} 页合并）: {final_path}")
+    if len(saved_pdfs) == 1:
+        final_path = saved_pdfs[0]
+        shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
+        logger.info(f"ACAD 转换成功（单页）: {final_path}")
         return final_path
 
-    except Exception as e:
-        logger.warning(f"ACAD 结果处理失败: {e}")
-        shutil.rmtree(temp_extract, ignore_errors=True)
+    # 多页合并
+    final_path = os.path.join(output_dir, f"{base}.pdf")
+    await _merge_pdfs(saved_pdfs, final_path)
+    shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
+    logger.info(f"ACAD 转换成功（{len(pdf_files)} 页合并）: {final_path}")
+    return final_path
+
+
+async def convert_pdf_to_dwg(input_path: str, output_dir: str) -> str | None:
+    """通过 ACADxPDF 服务将 PDF 转 DWG（异步轮询模式）。
+    返回 DWG 文件路径，失败返回 None。
+    """
+    import aiohttp
+
+    # 检查服务
+    try:
+        async with aiohttp.ClientSession() as client:
+            resp = await _acad_request(client, "GET", "/health")
+            if resp.status != 200:
+                return None
+    except Exception:
         return None
+
+    # 提交 PDF→DWG 任务
+    try:
+        async with aiohttp.ClientSession() as client:
+            with open(input_path, "rb") as f:
+                data = aiohttp.FormData()
+                data.add_field("files", f, filename=os.path.basename(input_path))
+                resp = await _acad_request(client, "POST", "/convert-pdf", data=data,
+                                           timeout=aiohttp.ClientTimeout(total=30))
+                if resp.status != 200:
+                    text = await resp.text()
+                    logger.warning(f"ACAD PDF→DWG 提交失败 {resp.status}: {text[:200]}")
+                    return None
+                result = await resp.json()
+                task_id = result.get("task_id")
+                if not task_id:
+                    return None
+    except Exception as e:
+        logger.warning(f"ACAD PDF→DWG 提交异常: {e}")
+        return None
+
+    # 轮询
+    async with aiohttp.ClientSession() as client:
+        task_data = await _poll_acad_task(client, "/pdf-task", task_id)
+    if not task_data:
+        return None
+
+    # 下载结果
+    extracted = await _download_acad_result(task_id, "/download-pdf-zip", output_dir)
+    if not extracted:
+        return None
+
+    # 找 DWG 文件
+    dwg_files = [f for f in extracted if f.lower().endswith(".dwg")]
+    if not dwg_files:
+        logger.warning("PDF→DWG 结果中无 DWG 文件")
+        shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
+        return None
+
+    # 移动 DWG 到 output_dir
+    dwg_dest = os.path.join(output_dir, os.path.basename(dwg_files[0]))
+    shutil.copy2(dwg_files[0], dwg_dest)
+    shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
+    logger.info(f"PDF→DWG 转换成功: {dwg_dest}")
+    return dwg_dest
 
 
 async def _merge_pdfs(pdf_paths: list[str], output_path: str) -> None:
@@ -439,6 +563,8 @@ def extract_dxf_text(dxf_path: str) -> dict:
         content = content.strip()
         if not content:
             continue
+        # 清理 DXF 文字中的控制字符
+        content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', content)
 
         # 获取位置和字号
         try:

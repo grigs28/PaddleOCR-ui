@@ -3,6 +3,11 @@ from docx import Document
 from docx.shared import Pt
 
 
+def _clean_xml_text(text: str) -> str:
+    """移除 XML 不兼容的控制字符（保留 \\n \\r \\t）"""
+    return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
+
 class ExportService:
     @staticmethod
     def md_to_txt(md_text: str) -> str:
@@ -21,6 +26,7 @@ class ExportService:
         import io
         doc = Document()
         for line in md_text.split('\n'):
+            line = _clean_xml_text(line)
             if line.startswith('# '):
                 doc.add_heading(line[2:], level=1)
             elif line.startswith('## '):

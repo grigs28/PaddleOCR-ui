@@ -73,13 +73,37 @@
       <el-card>
         <h3 style="margin: 0 0 16px;">超时与并发配置</h3>
         <el-form label-width="200px" size="small">
-          <el-form-item v-for="(meta, key) in settingsData" :key="key" :label="meta.label">
+          <el-form-item v-for="(meta, key) in intSettings" :key="key" :label="meta.label">
             <el-input-number v-model="settingsData[key].value" :min="meta.min" :max="meta.max" :step="1" />
             <span style="margin-left: 8px; color: #909399; font-size: 12px;">范围: {{ meta.min }} ~ {{ meta.max }}</span>
           </el-form-item>
         </el-form>
-        <el-button type="primary" @click="saveSettings" :loading="savingSettings">保存配置</el-button>
       </el-card>
+
+      <el-card style="margin-top: 16px;">
+        <h3 style="margin: 0 0 16px;">服务地址配置</h3>
+        <el-form label-width="200px" size="small">
+          <el-form-item v-for="(meta, key) in strSettings" :key="key" :label="meta.label">
+            <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
+              <el-input v-model="settingsData[key].value" :type="key === 'acad_service_apikey' ? 'password' : 'text'"
+                :show-password="key === 'acad_service_apikey'" style="flex: 1;" placeholder="留空则不启用" />
+              <el-button v-if="key === 'ocr_service_url'" size="small" :loading="testingOcr"
+                @click="testConnection('ocr')">
+                测试连接
+              </el-button>
+              <el-button v-if="key === 'acad_service_apikey'" size="small" :loading="testingAcad"
+                @click="testConnection('acad')">
+                测试连接
+              </el-button>
+            </div>
+          </el-form-item>
+        </el-form>
+        <div v-if="testResult" :style="{ color: testResult.ok ? '#67c23a' : '#f56c6c', fontSize: '12px', marginTop: '8px' }">
+          {{ testResult.message }}
+        </div>
+      </el-card>
+
+      <el-button type="primary" style="margin-top: 16px;" @click="saveSettings" :loading="savingSettings">保存配置</el-button>
     </el-tab-pane>
 
     <!-- 系统日志 -->
@@ -106,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import AdminUserTable from '../components/AdminUserTable.vue'
@@ -122,6 +146,39 @@ const newKeyValue = ref('')
 // --- 系统设置 ---
 const settingsData = ref({})
 const savingSettings = ref(false)
+const testingOcr = ref(false)
+const testingAcad = ref(false)
+const testResult = ref(null)
+
+const intSettings = computed(() => {
+  const result = {}
+  for (const [k, v] of Object.entries(settingsData.value)) {
+    if (v.type === 'int') result[k] = v
+  }
+  return result
+})
+
+const strSettings = computed(() => {
+  const result = {}
+  for (const [k, v] of Object.entries(settingsData.value)) {
+    if (v.type === 'str') result[k] = v
+  }
+  return result
+})
+
+const testConnection = async (service) => {
+  const loading = service === 'ocr' ? testingOcr : testingAcad
+  loading.value = true
+  testResult.value = null
+  try {
+    const { data } = await axios.post('/api/v1/admin/test-connection', { service })
+    testResult.value = data
+  } catch (e) {
+    testResult.value = { ok: false, message: '请求失败: ' + (e.response?.data?.detail || e.message) }
+  } finally {
+    loading.value = false
+  }
+}
 
 const fetchSettings = async () => {
   const { data } = await axios.get('/api/v1/admin/settings')

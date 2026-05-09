@@ -18,7 +18,7 @@ from backend.services.doc_converter import (
     is_libreoffice_available, convert_to_pdf, is_legacy_office,
     extract_docx_text, extract_xlsx_text,
     is_cad2x_available, convert_dwg_to_pdf,
-    extract_dxf_text,
+    extract_dxf_text, convert_pdf_to_dwg,
 )
 from backend.utils.file_utils import (
     is_image_file, is_pdf_file, is_doc_file, is_cad_file,
@@ -125,6 +125,7 @@ class TaskEngine:
                     ext = get_file_extension(filename)
                     ocr_result = None
                     converted_pdf_path = None  # LibreOffice 转换的 PDF 路径
+                    dxf_source_path = None     # DXF 文件路径（CAD 文件用）
 
                     # docx/xlsx/doc/xls: 优先尝试 LibreOffice 转 PDF → OCR
                     if is_doc_file(filename):
@@ -159,7 +160,6 @@ class TaskEngine:
 
                     elif is_cad_file(filename):
                         # DWG/DXF: ACAD/cad2x 转 PDF+DXF → 直接从 DXF 提取文字（不走 OCR）
-                        dxf_source_path = None
                         await self._push_progress(task_id, task.user_id, 0, phase="converting")
                         pdf_path = await convert_dwg_to_pdf(file_path, os.path.dirname(file_path))
                         converted_pdf_path = pdf_path
@@ -191,7 +191,54 @@ class TaskEngine:
                     elif is_image_file(filename):
                         ocr_result = await ocr_client.recognize_image(file_path)
                     elif is_pdf_file(filename):
-                        ocr_result = await ocr_client.recognize_pdf(file_path)
+                        # PDF: 根据 output_formats 判断走 OCR 还是转 DWG
+                        output_formats = []
+                        try:
+                            output_formats = json.loads(task.output_formats or '["markdown"]')
+                        except Exception:
+                            output_formats = ["markdown"]
+
+                        if 'dwg' in output_formats:
+                            # PDF→DWG 纯转换
+                            dwg_path = await convert_pdf_to_dwg(file_path, os.path.dirname(file_path))
+                            if not dwg_path:
+                                await self._update_status(task_id, "failed", error="PDF→DWG 转换失败")
+                                return
+
+                            # 直接保存 DWG 结果，不走 OCR
+                            progress_loop.cancel()
+                            try:
+                                await progress_loop
+                            except asyncio.CancelledError:
+                                pass
+
+                            result_dir = get_result_path(str(task_id))
+                            source_dest = os.path.join(result_dir, f"source_{filename}")
+                            shutil.copy2(file_path, source_dest)
+                            dwg_dest = os.path.join(result_dir, os.path.basename(dwg_path))
+                            shutil.copy2(dwg_path, dwg_dest)
+
+                            processing_seconds = int(time.monotonic() - wall_start)
+                            completed_at = datetime.now()
+                            async with async_session() as s:
+                                await s.execute(
+                                    update(Task)
+                                    .where(Task.id == task_id)
+                                    .values(
+                                        result_path=result_dir,
+                                        progress=100,
+                                        page_total=1,
+                                        page_current=1,
+                                        processing_time=processing_seconds,
+                                        completed_at=completed_at,
+                                        status="completed",
+                                    )
+                                )
+                                await s.commit()
+                            logger.info(f"任务 {task_id} PDF→DWG 完成, 用时{processing_seconds}秒")
+                            return
+                        else:
+                            ocr_result = await ocr_client.recognize_pdf(file_path)
                     else:
                         await self._update_status(task_id, "failed", error=f"不支持的文件类型: {filename}")
                         return

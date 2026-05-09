@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
-
 import { ElMessage } from 'element-plus'
 
 const MAX_FILE_SIZE = 1024 * 1024 * 1024 // 1GB
@@ -14,9 +13,9 @@ function getFileExtension(filename) {
 
 export const useUploadStore = defineStore('upload', {
   state: () => ({
-    files: [],       // { id, raw, name, size, status, taskId, errorMsg }
+    files: [],
     uploading: false,
-    outputFormats: ['markdown', 'json'],  // 默认输出格式
+    outputFormats: ['markdown', 'json'],
   }),
   getters: {
     pendingFiles: (state) => state.files.filter(f => f.status === 'pending'),
@@ -26,7 +25,17 @@ export const useUploadStore = defineStore('upload', {
       { value: 'json', label: 'JSON' },
       { value: 'txt', label: '纯文本' },
       { value: 'docx', label: 'DOCX' },
+      { value: 'dwg', label: 'DWG', pdfOnly: true },
     ],
+    hasPdfFiles: (state) => state.files.some(f => getFileExtension(f.name) === 'pdf'),
+    hasCadFiles: (state) => state.files.some(f => {
+      const ext = getFileExtension(f.name)
+      return ext === 'dwg' || ext === 'dxf'
+    }),
+    hasMixedCadPdf: (state) => {
+      const exts = new Set(state.files.map(f => getFileExtension(f.name)))
+      return (exts.has('dwg') || exts.has('dxf')) && exts.has('pdf')
+    },
   },
   actions: {
     addFiles(fileList) {
@@ -56,6 +65,10 @@ export const useUploadStore = defineStore('upload', {
       if (idx !== -1) this.files.splice(idx, 1)
     },
     async startUpload() {
+      if (this.hasMixedCadPdf) {
+        ElMessage.error('不能同时上传 DWG 和 PDF 文件')
+        return
+      }
       this.uploading = true
       const { useTaskStore } = await import('./task')
       const taskStore = useTaskStore()
@@ -70,7 +83,6 @@ export const useUploadStore = defineStore('upload', {
           const { data } = await axios.post('/api/v1/tasks', formData)
           file.taskId = data.task_id
           file.status = 'done'
-          // 加入活跃任务队列
           taskStore.addActiveTask({ id: data.task_id, input_filename: file.name, input_file_size: file.size, status: 'queued', progress: 0 })
         } catch (e) {
           file.status = 'error'
@@ -78,7 +90,6 @@ export const useUploadStore = defineStore('upload', {
         }
       }
       this.uploading = false
-      // 清除已完成的上传项
       this.files = this.files.filter(f => f.status === 'pending' || f.status === 'error')
     },
     clearCompleted() {

@@ -15,6 +15,9 @@ EDITABLE_SETTINGS = {
     "image_semaphore_size": {"label": "图片并发数", "type": "int", "min": 1, "max": 20},
     "pdf_semaphore_size": {"label": "PDF 并发数", "type": "int", "min": 1, "max": 20},
     "max_file_size_mb": {"label": "最大文件大小（MB）", "type": "int", "min": 1, "max": 10240},
+    "ocr_service_url": {"label": "OCR 服务地址", "type": "str"},
+    "acad_service_url": {"label": "DWG→PDF/DXF 服务地址", "type": "str"},
+    "acad_service_apikey": {"label": "DWG→PDF/DXF API Key", "type": "str"},
 }
 
 
@@ -25,13 +28,16 @@ async def get_admin_settings(request: Request):
     settings = get_settings()
     result = {}
     for key, meta in EDITABLE_SETTINGS.items():
-        result[key] = {
+        entry = {
             "value": getattr(settings, key),
             "label": meta["label"],
             "type": meta["type"],
-            "min": meta["min"],
-            "max": meta["max"],
         }
+        if "min" in meta:
+            entry["min"] = meta["min"]
+        if "max" in meta:
+            entry["max"] = meta["max"]
+        result[key] = entry
     return {"settings": result}
 
 
@@ -82,3 +88,40 @@ def _save_to_env(updates: dict):
     with open(env_path, "w", encoding="utf-8") as f:
         for k, v in existing.items():
             f.write(f"{k}={v}\n")
+
+
+@router.post("/test-connection")
+async def test_service_connection(request: Request):
+    """测试外部服务连通性"""
+    await _require_admin(request)
+    body = await request.json()
+    service = body.get("service", "")
+    import httpx
+
+    if service == "ocr":
+        url = get_settings().ocr_service_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{url}/health")
+                if resp.status_code == 200:
+                    return {"ok": True, "message": f"OCR 服务连接正常 ({url})"}
+                return {"ok": False, "message": f"OCR 服务返回 {resp.status_code}"}
+        except Exception as e:
+            return {"ok": False, "message": f"连接失败: {e}"}
+
+    elif service == "acad":
+        settings = get_settings()
+        url = settings.acad_service_url.rstrip("/")
+        headers = {}
+        if settings.acad_service_apikey:
+            headers["Authorization"] = f"Bearer {settings.acad_service_apikey}"
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{url}/health", headers=headers)
+                if resp.status_code == 200:
+                    return {"ok": True, "message": f"DWG 转换服务连接正常 ({url})"}
+                return {"ok": False, "message": f"服务返回 {resp.status_code}"}
+        except Exception as e:
+            return {"ok": False, "message": f"连接失败: {e}"}
+
+    return {"ok": False, "message": f"未知服务: {service}"}
