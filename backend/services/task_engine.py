@@ -39,18 +39,45 @@ class TaskEngine:
         settings = get_settings()
         self.image_semaphore = asyncio.Semaphore(settings.image_semaphore_size)
         self.pdf_semaphore = asyncio.Semaphore(settings.pdf_semaphore_size)
+        self.acad_semaphore = asyncio.Semaphore(settings.acad_concurrency)
         # 优先级队列: (负优先级, 入队序号, task_id) — asyncio.PriorityQueue 弹最小的
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._counter = 0  # 入队序号，同优先级先到先服务
         self._running = False
         self._worker_task: Optional[asyncio.Task] = None
 
+    def refresh_semaphores(self):
+        """热更新并发数（管理面板修改后调用）"""
+        settings = get_settings()
+        self.image_semaphore = asyncio.Semaphore(settings.image_semaphore_size)
+        self.pdf_semaphore = asyncio.Semaphore(settings.pdf_semaphore_size)
+        self.acad_semaphore = asyncio.Semaphore(settings.acad_concurrency)
+        logger.info(f"信号量已刷新: image={settings.image_semaphore_size}, pdf={settings.pdf_semaphore_size}, acad={settings.acad_concurrency}")
+
     async def start(self):
         if self._running:
             return
         self._running = True
         self._worker_task = asyncio.create_task(self._worker())
+        # 恢复上次重启时未完成的任务
+        await self._recover_stuck_tasks()
         logger.info("任务引擎已启动（3级优先级队列）")
+
+    async def _recover_stuck_tasks(self):
+        """启动时将未完成的任务重新入队"""
+        async with async_session() as s:
+            r = await s.execute(
+                select(Task).where(Task.status.in_(["processing", "queued", "pending"]))
+            )
+            tasks = r.scalars().all()
+            if not tasks:
+                return
+            for t in tasks:
+                t.status = "pending"
+                self._counter += 1
+                await self._queue.put((-t.priority, self._counter, t.id))
+            await s.commit()
+            logger.info(f"已恢复 {len(tasks)} 个未完成任务")
 
     async def stop(self):
         self._running = False
@@ -81,11 +108,16 @@ class TaskEngine:
             except asyncio.TimeoutError:
                 continue
 
-            try:
-                await self._process_task(task_id)
-            except Exception as e:
-                logger.error(f"任务 {task_id} 处理异常: {e}")
-                await self._update_status(task_id, "failed", error=str(e))
+            # 并发派发，由 semaphore 控制实际并发数
+            asyncio.create_task(self._process_task_safe(task_id))
+
+    async def _process_task_safe(self, task_id: int):
+        """包装 _process_task，捕获异常"""
+        try:
+            await self._process_task(task_id)
+        except Exception as e:
+            logger.error(f"任务 {task_id} 处理异常: {e}")
+            await self._update_status(task_id, "failed", error=str(e))
 
     async def _process_task(self, task_id: int):
         async with async_session() as session:
@@ -103,12 +135,22 @@ class TaskEngine:
                 await self._update_status(task_id, "failed", error="文件不存在")
                 return
 
-            if is_pdf_file(filename):
+            # 判断是否为 ACAD 转换任务（不占用信号量，ACAD 服务自己管理并发）
+            output_formats = []
+            try:
+                output_formats = json.loads(task.output_formats or '["markdown"]')
+            except Exception:
+                output_formats = ["markdown"]
+            is_acad_task = is_cad_file(filename) or (is_pdf_file(filename) and 'dwg' in output_formats)
+
+            if is_acad_task:
+                sem = self.acad_semaphore  # ACAD 独立信号量，最多 12 并发
+            elif is_pdf_file(filename):
                 sem = self.pdf_semaphore
             else:
                 sem = self.image_semaphore
 
-            async with sem:
+            async def _run_with_sem():
                 await self._update_status(task_id, "processing")
                 started_at = datetime.now()
                 await self._update_field(task_id, "started_at", started_at)
@@ -159,11 +201,10 @@ class TaskEngine:
                                 return
 
                     elif is_cad_file(filename):
-                        # DWG/DXF: ACAD/cad2x 转 PDF+DXF → 直接从 DXF 提取文字（不走 OCR）
+                        # DWG/DXF: ACAD 转 PDF+DXF
                         await self._push_progress(task_id, task.user_id, 0, phase="converting")
-                        pdf_path = await convert_dwg_to_pdf(file_path, os.path.dirname(file_path))
-                        converted_pdf_path = pdf_path
-                        await self._push_progress(task_id, task.user_id, 80, phase="ocr")
+                        pdf_paths = await convert_dwg_to_pdf(file_path, os.path.dirname(file_path), merge=bool(task.merge_pdf))
+                        converted_pdf_path = pdf_paths  # list[str]，后面统一处理复制
 
                         # 查找 DXF 文件（ACAD 服务会在同一目录生成）
                         dxf_path = None
@@ -172,21 +213,27 @@ class TaskEngine:
                             if f.lower().endswith('.dxf'):
                                 dxf_path = os.path.join(output_dir, f)
                                 break
-
                         if dxf_path:
-                            ocr_result = extract_dxf_text(dxf_path)
                             dxf_source_path = dxf_path
-                        elif pdf_path:
-                            # 无 DXF 时回退到 OCR
-                            ocr_result = await ocr_client.recognize_pdf(pdf_path)
+
+                        # 判断是否需要文字识别
+                        text_formats = [f for f in output_formats if f != 'dwg']
+                        if not text_formats or not pdf_paths:
+                            # 无文字格式 或 转换失败 → 仅保存 PDF，不走 OCR
+                            if not pdf_paths:
+                                await self._update_status(task_id, "failed", error="DWG/DXF 转换失败")
+                                progress_loop.cancel()
+                                try:
+                                    await progress_loop
+                                except asyncio.CancelledError:
+                                    pass
+                                return
+                            # 构造空的 ocr_result，仅用于保存 PDF
+                            ocr_result = {"markdown": "", "pages": 1, "images": {}}
                         else:
-                            await self._update_status(task_id, "failed", error="DWG/DXF 转换失败")
-                            progress_loop.cancel()
-                            try:
-                                await progress_loop
-                            except asyncio.CancelledError:
-                                pass
-                            return
+                            # 有文字格式 → DXF 文字 + OCR 双输出
+                            await self._push_progress(task_id, task.user_id, 80, phase="ocr")
+                            ocr_result = await ocr_client.recognize_pdf(pdf_paths[0])
 
                     elif is_image_file(filename):
                         ocr_result = await ocr_client.recognize_image(file_path)
@@ -236,6 +283,17 @@ class TaskEngine:
                                 )
                                 await s.commit()
                             logger.info(f"任务 {task_id} PDF→DWG 完成, 用时{processing_seconds}秒")
+
+                            # 推送完成状态到前端
+                            try:
+                                from backend.ws.progress import progress_manager
+                                await progress_manager.send_progress(task.user_id, task_id, {
+                                    "status": "completed",
+                                    "progress": 100,
+                                    "processing_time": processing_seconds,
+                                })
+                            except Exception:
+                                pass
                             return
                         else:
                             ocr_result = await ocr_client.recognize_pdf(file_path)
@@ -273,13 +331,31 @@ class TaskEngine:
                     source_dest = os.path.join(result_dir, f"source_{filename}")
                     shutil.copy2(file_path, source_dest)
 
-                    # CAD 文件：保留 DXF 源文件到结果目录
+                    # CAD 文件：保留 DXF 源文件 + 提取文字到结果目录
                     if dxf_source_path and os.path.exists(dxf_source_path):
                         dxf_dest = os.path.join(result_dir, os.path.basename(dxf_source_path))
                         shutil.copy2(dxf_source_path, dxf_dest)
+                        # DXF 文字提取结果单独保存为 _dxf.md
+                        base = os.path.splitext(filename)[0]
+                        dxf_text = extract_dxf_text(dxf_source_path)
+                        if dxf_text and dxf_text.get("markdown"):
+                            dxf_md_path = os.path.join(result_dir, f"{base}_dxf.md")
+                            with open(dxf_md_path, "w", encoding="utf-8") as f:
+                                f.write(dxf_text["markdown"])
+                            logger.info(f"任务 {task_id} DXF 文字已保存: {len(dxf_text['markdown'])} 字符")
 
                     # Office 文档：保留 LibreOffice 转换的 PDF
-                    if converted_pdf_path and os.path.exists(converted_pdf_path):
+                    if isinstance(converted_pdf_path, list):
+                        # CAD 文件：复制所有 PDF 到结果目录
+                        for pdf_p in converted_pdf_path:
+                            if os.path.exists(pdf_p):
+                                pdf_dest = os.path.join(result_dir, os.path.basename(pdf_p))
+                                shutil.copy2(pdf_p, pdf_dest)
+                                try:
+                                    os.remove(pdf_p)
+                                except OSError:
+                                    pass
+                    elif converted_pdf_path and os.path.exists(converted_pdf_path):
                         base_name = os.path.splitext(filename)[0]
                         pdf_dest = os.path.join(result_dir, f"{base_name}.pdf")
                         shutil.copy2(converted_pdf_path, pdf_dest)
@@ -380,6 +456,12 @@ class TaskEngine:
                         pass
                     await self._update_status(task_id, "failed", error=str(e))
                     raise
+
+            if sem:
+                async with sem:
+                    await _run_with_sem()
+            else:
+                await _run_with_sem()
 
     async def _progress_loop(self, task_id: int, user_id: int, file_size: int, wall_start: float, two_phase: bool = False):
         """每 5 秒估算进度并推送。two_phase 时: 0-50=转换PDF, 50-100=OCR"""

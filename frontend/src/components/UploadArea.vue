@@ -20,16 +20,45 @@
     <!-- 输出格式选择 -->
     <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
       <span style="font-size: 12px; color: #909399;">输出格式：</span>
-      <el-checkbox-group v-model="uploadStore.outputFormats" size="small">
+      <el-checkbox-group :model-value="uploadStore.outputFormats" size="small">
         <el-checkbox v-for="fmt in uploadStore.availableFormats" :key="fmt.value"
-          :label="fmt.value" v-show="!fmt.pdfOnly || uploadStore.hasPdfFiles">{{ fmt.label }}</el-checkbox>
+          :label="fmt.value"
+          :model-value="uploadStore.outputFormats.includes(fmt.value)"
+          :disabled="fmt.value !== 'dwg' && uploadStore.outputFormats.includes('dwg')"
+          @change="uploadStore.toggleFormat(fmt.value)">{{ fmt.label }}</el-checkbox>
       </el-checkbox-group>
+      <span v-if="uploadStore.hasCadFiles && uploadStore.outputFormats.length === 0"
+        style="font-size: 12px; color: #909399;">DWG 默认仅转换为 PDF</span>
+      <span v-if="uploadStore.hasCadFiles && uploadStore.outputFormats.length > 0 && !uploadStore.outputFormats.includes('dwg')"
+        style="font-size: 12px; color: #e6a23c;">将对转换后的 PDF 进行 OCR 文字识别</span>
+      <span v-if="!uploadStore.hasCadFiles && uploadStore.outputFormats.includes('dwg') && !uploadStore.hasPdfFiles"
+        style="font-size: 12px; color: #e6a23c;">DWG 仅对 PDF 文件生效，且与其他格式互斥</span>
+      <!-- DWG PDF 模式选择：单页/合并 互斥 -->
+      <template v-if="uploadStore.hasCadFiles">
+        <el-checkbox v-model="uploadStore.singlePagePdf" size="small"
+          :disabled="uploadStore.outputFormats.includes('dwg')"
+          @change="uploadStore.singlePagePdf && (uploadStore.mergePdf = false)"
+          style="margin-left: 12px;">单页 PDF</el-checkbox>
+        <el-checkbox v-model="uploadStore.mergePdf" size="small"
+          :disabled="uploadStore.outputFormats.includes('dwg')"
+          @change="uploadStore.mergePdf && (uploadStore.singlePagePdf = false)">合并 PDF</el-checkbox>
+      </template>
     </div>
     <div v-if="uploadStore.hasMixedCadPdf" style="margin-top: 4px; color: #f56c6c; font-size: 12px;">
       不能同时上传 DWG 和 PDF 文件
     </div>
-    <!-- 待上传文件列表 -->
-    <div v-if="uploadStore.files.length" style="margin-top: 12px;">
+    <!-- 操作按钮（文件列表上方） -->
+    <div v-if="uploadStore.files.length" style="margin-top: 10px; display: flex; gap: 8px; align-items: center;">
+      <el-button type="primary" size="small" @click="uploadStore.startUpload()"
+        :loading="uploadStore.uploading"
+        :disabled="uploadStore.pendingFiles.length === 0 || (!uploadStore.hasCadFiles && uploadStore.outputFormats.length === 0) || uploadStore.hasMixedCadPdf">
+        开始转换 ({{ uploadStore.pendingFiles.length }})
+      </el-button>
+      <el-button size="small" @click="uploadStore.clearCompleted()">清除已完成</el-button>
+      <span style="font-size: 12px; color: #909399; margin-left: auto;">共 {{ uploadStore.files.length }} 个文件</span>
+    </div>
+    <!-- 文件列表（可滚动） -->
+    <div v-if="uploadStore.files.length" style="margin-top: 8px; max-height: 200px; overflow-y: auto;">
       <div v-for="f in uploadStore.files" :key="f.id"
         style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 13px;">
         <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;">
@@ -42,14 +71,6 @@
           <el-button v-if="f.status === 'pending' || f.status === 'error'" text type="danger" size="small"
             @click="uploadStore.removeFile(f.id)">移除</el-button>
         </div>
-      </div>
-      <div style="margin-top: 8px; display: flex; gap: 8px;">
-        <el-button type="primary" size="small" @click="uploadStore.startUpload()"
-          :loading="uploadStore.uploading"
-          :disabled="uploadStore.pendingFiles.length === 0 || uploadStore.outputFormats.length === 0 || uploadStore.hasMixedCadPdf">
-          开始转换 ({{ uploadStore.pendingFiles.length }})
-        </el-button>
-        <el-button size="small" @click="uploadStore.clearCompleted()">清除已完成</el-button>
       </div>
     </div>
   </div>

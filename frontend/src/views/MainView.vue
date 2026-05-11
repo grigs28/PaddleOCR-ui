@@ -38,7 +38,8 @@ const activeTab = ref('workspace')
 onMounted(() => { userStore.fetchUser() })
 
 const handleLogout = async () => {
-  await axios.post('/auth/logout')
-  router.push('/login')
+  await axios.post('/auth/logout').catch(() => {})
+  document.cookie = 'paddleocr_session=; path=/; max-age=0'
+  window.location.href = '/auth/login'
 }
 </script>

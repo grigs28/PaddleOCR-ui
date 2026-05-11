@@ -143,7 +143,7 @@ async def preview_file(file_id: int, request: Request):
 
 
 @router.get("/{file_id}/download")
-async def download_file(file_id: int, request: Request, format: str = Query("md")):
+async def download_file(file_id: int, request: Request, format: str = Query("zip")):
     user_id, is_admin = await _get_user_id_and_role(request)
 
     async with async_session() as session:
@@ -157,14 +157,32 @@ async def download_file(file_id: int, request: Request, format: str = Query("md"
         if task.status != "completed":
             raise HTTPException(status_code=400, detail="任务未完成")
 
+        base_name = os.path.splitext(task.input_filename or "result")[0]
+
+        # 默认打包整个结果目录
+        if format == "zip" or format == "md":
+            if not task.result_path or not os.path.isdir(task.result_path):
+                raise HTTPException(status_code=404, detail="结果文件不存在")
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(task.result_path):
+                    for fname in files:
+                        fpath = os.path.join(root, fname)
+                        arcname = os.path.relpath(fpath, task.result_path)
+                        zf.write(fpath, f"{base_name}/{arcname}")
+            buf.seek(0)
+            return StreamingResponse(
+                buf,
+                media_type="application/zip",
+                headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(base_name)}.zip"},
+            )
+
         md_path = os.path.join(task.result_path, "result.md") if task.result_path else None
         if not md_path or not os.path.exists(md_path):
             raise HTTPException(status_code=404, detail="结果文件不存在")
 
         with open(md_path, "r", encoding="utf-8") as f:
             md_text = f.read()
-
-        base_name = os.path.splitext(task.input_filename or "result")[0]
 
         if format == "txt":
             content = ExportService.md_to_txt(md_text)
@@ -181,7 +199,6 @@ async def download_file(file_id: int, request: Request, format: str = Query("md"
                     media_type="application/json",
                     filename=f"{base_name}.json",
                 )
-            # 没有 JSON 文件则降级为简单格式
             content = json.dumps({"markdown": md_text}, ensure_ascii=False, indent=2)
             return StreamingResponse(
                 io.BytesIO(content.encode("utf-8")),
@@ -194,22 +211,6 @@ async def download_file(file_id: int, request: Request, format: str = Query("md"
                 io.BytesIO(docx_bytes),
                 media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(base_name)}.docx"},
-            )
-        elif format == "zip":
-            # 打包结果目录所有文件（源文件 + 图片 + 结果）
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                if task.result_path and os.path.isdir(task.result_path):
-                    for root, dirs, files in os.walk(task.result_path):
-                        for fname in files:
-                            fpath = os.path.join(root, fname)
-                            arcname = os.path.relpath(fpath, task.result_path)
-                            zf.write(fpath, f"{base_name}/{arcname}")
-            buf.seek(0)
-            return StreamingResponse(
-                buf,
-                media_type="application/zip",
-                headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(base_name)}.zip"},
             )
         else:
             return FileResponse(

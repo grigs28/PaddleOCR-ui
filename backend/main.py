@@ -19,9 +19,73 @@ from backend.services.task_engine import task_engine
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(levelname)s %(message)s')
 
 
-@asynccontextmanager
+def _sync_env_file(settings):
+    """确保容器内 .env 文件包含所有配置（从环境变量补充缺失项）"""
+    env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    env_path = os.path.normpath(env_path)
+
+    existing = {}
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    existing[k.strip()] = v.strip()
+
+    # 从 pydantic settings 所有字段补充
+    changed = False
+    for field_name in settings.model_fields:
+        val = str(getattr(settings, field_name))
+        if field_name not in existing:
+            existing[field_name] = val
+            changed = True
+
+    if changed:
+        with open(env_path, "w", encoding="utf-8") as f:
+            for k, v in existing.items():
+                f.write(f"{k}={v}\n")
+
+
+async def _auto_migrate():
+    """自动建表 + 新增列迁移"""
+    from backend.database import engine, Base
+    from backend.models import task, user, api_key  # noqa: 确保模型注册
+
+    # 建表（不覆盖已存在的表）
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # 增量迁移：检查并添加缺失的列
+    async with engine.begin() as conn:
+        # 获取 tasks 表现有列
+        result = await conn.execute(
+            __import__('sqlalchemy').text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='tasks'"
+            )
+        )
+        existing_cols = {row[0] for row in result.fetchall()}
+
+        # 模型定义的列
+        from backend.models.task import Task
+        model_cols = {c.name for c in Task.__table__.columns}
+
+        # 添加缺失列
+        for col_name in model_cols - existing_cols:
+            col = Task.__table__.columns[col_name]
+            col_type = str(col.type).upper()
+            default = ""
+            if col.default is not None:
+                default = f" DEFAULT {col.default.arg}"
+            elif col.server_default is not None:
+                default = f" DEFAULT {col.server_default.arg}"
+            sql = f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}{default}"
+            logging.getLogger(__name__).info(f"迁移: {sql}")
+            await conn.execute(__import__('sqlalchemy').text(sql))
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # 启动时同步环境变量到 .env 文件（确保容器内 .env 完整）
+    _sync_env_file(settings)
     for dir_path in [settings.upload_dir, settings.result_dir, settings.temp_dir]:
         os.makedirs(dir_path, exist_ok=True)
     # 文件日志
@@ -31,6 +95,9 @@ async def lifespan(app: FastAPI):
     )
     file_handler.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s'))
     logging.getLogger().addHandler(file_handler)
+
+    # 自动迁移：同步模型字段到数据库
+    await _auto_migrate()
 
     await task_engine.start()
     yield

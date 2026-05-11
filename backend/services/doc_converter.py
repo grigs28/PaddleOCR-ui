@@ -53,20 +53,21 @@ def is_cad2x_available() -> bool:
     return _cad2x_path is not None
 
 
-async def convert_dwg_to_pdf(input_path: str, output_dir: str) -> str | None:
+async def convert_dwg_to_pdf(input_path: str, output_dir: str, merge: bool = False) -> list[str] | None:
     """DWG/DXF 转 PDF。优先用 ACAD 服务（按图框分页），回退到 cad2x。
 
-    ACAD 服务可能返回多个 PDF（每个图框一个），合并为一个 PDF 返回。
-    返回最终 PDF 路径，失败返回 None。
+    merge=True 时合并多页 PDF 为一个文件，否则保留每个图框独立 PDF。
+    返回 PDF 路径列表，失败返回 None。
     """
     # 优先尝试 ACAD 服务
-    pdf_path = await _convert_dwg_via_acad(input_path, output_dir)
-    if pdf_path:
-        return pdf_path
+    pdf_paths = await _convert_dwg_via_acad(input_path, output_dir, merge=merge)
+    if pdf_paths:
+        return pdf_paths
 
     # 回退到 cad2x
     logger.info("ACAD 服务不可用或失败，回退到 cad2x")
-    return await _convert_dwg_via_cad2x(input_path, output_dir)
+    result = await _convert_dwg_via_cad2x(input_path, output_dir)
+    return [result] if result else None
 
 
 async def _acad_request(client, method: str, path: str, **kwargs):
@@ -81,9 +82,11 @@ async def _acad_request(client, method: str, path: str, **kwargs):
 
 
 async def _poll_acad_task(client, task_path: str, task_id: str) -> dict | None:
-    """轮询 ACAD 任务状态，返回完成的 task 数据或 None"""
+    """轮询 ACAD 任务状态，返回完成的 task 数据或 None。
+    ACAD 服务自行管理每个文件的转换超时，每个文件最终都有终态（done/failed）。
+    """
     settings = get_settings()
-    timeout = settings.libreoffice_timeout
+    timeout = settings.acad_task_timeout
     deadline = asyncio.get_event_loop().time() + timeout
 
     while asyncio.get_event_loop().time() < deadline:
@@ -91,17 +94,27 @@ async def _poll_acad_task(client, task_path: str, task_id: str) -> dict | None:
             resp = await _acad_request(client, "GET", f"{task_path}/{task_id}")
             if resp.status == 200:
                 data = await resp.json()
-                if data.get("status") == "done":
+                status = data.get("status")
+                if status == "done":
                     return data
-                if data.get("status") == "failed":
-                    errors = [f["error"] for f in data.get("files", []) if f.get("error")]
-                    logger.warning(f"ACAD 任务失败: {errors}")
+                if status == "failed":
+                    # 全部失败才返回 None；部分成功时仍然返回 data
+                    files = data.get("files", [])
+                    has_success = any(f.get("success") for f in files)
+                    if has_success:
+                        logger.warning(f"ACAD 任务部分失败，有成功文件")
+                        return data
+                    errors = [f.get("error", "unknown") for f in files if f.get("error")]
+                    logger.warning(f"ACAD 任务全部失败: {errors}")
                     return None
+            else:
+                logger.warning(f"ACAD 轮询非200: {resp.status} {task_path}/{task_id}")
+                return None
             await asyncio.sleep(5)
         except Exception as e:
             logger.warning(f"ACAD 轮询异常: {e}")
             await asyncio.sleep(5)
-    logger.warning(f"ACAD 任务超时 ({timeout}s)")
+    logger.warning(f"ACAD 轮询超时 ({timeout}s)，服务端仍在处理")
     return None
 
 
@@ -136,9 +149,10 @@ async def _download_acad_result(task_id: str, download_path: str, output_dir: st
         return []
 
 
-async def _convert_dwg_via_acad(input_path: str, output_dir: str) -> str | None:
+async def _convert_dwg_via_acad(input_path: str, output_dir: str, merge: bool = False) -> list[str] | None:
     """通过 ACADxPDF 服务将 DWG 转 PDF+DXF（异步轮询模式）。
-    返回合并后的 PDF 路径，DXF 保存在同目录。
+    merge=True 时合并多页 PDF 为一个文件。
+    返回 PDF 路径列表，DXF 保存在同目录。
     """
     import aiohttp
 
@@ -175,7 +189,7 @@ async def _convert_dwg_via_acad(input_path: str, output_dir: str) -> str | None:
 
     # 轮询任务状态
     async with aiohttp.ClientSession() as client:
-        task_data = await _poll_acad_task(client, "/tasks", task_id)
+        task_data = await _poll_acad_task(client, "/task", task_id)
     if not task_data:
         return None
 
@@ -215,18 +229,30 @@ async def _convert_dwg_via_acad(input_path: str, output_dir: str) -> str | None:
 
     base = os.path.splitext(os.path.basename(input_path))[0]
 
-    if len(saved_pdfs) == 1:
-        final_path = saved_pdfs[0]
-        shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
-        logger.info(f"ACAD 转换成功（单页）: {final_path}")
-        return final_path
-
-    # 多页合并
-    final_path = os.path.join(output_dir, f"{base}.pdf")
-    await _merge_pdfs(saved_pdfs, final_path)
+    # 清理临时解压目录
     shutil.rmtree(os.path.dirname(extracted[0]), ignore_errors=True)
-    logger.info(f"ACAD 转换成功（{len(pdf_files)} 页合并）: {final_path}")
-    return final_path
+
+    if len(saved_pdfs) == 1:
+        logger.info(f"ACAD 转换成功（单页）: {saved_pdfs[0]}")
+        return saved_pdfs
+
+    if merge:
+        # 多页合并为一个 PDF
+        merged_path = os.path.join(output_dir, f"{base}.pdf")
+        await _merge_pdfs(saved_pdfs, merged_path)
+        # 删除合并前的分页 PDF
+        for p in saved_pdfs:
+            if p != merged_path:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        logger.info(f"ACAD 转换成功（{len(pdf_files)} 页合并）: {merged_path}")
+        return [merged_path]
+    else:
+        # 不合并，返回所有 PDF
+        logger.info(f"ACAD 转换成功（{len(pdf_files)} 页，未合并）: {saved_pdfs}")
+        return saved_pdfs
 
 
 async def convert_pdf_to_dwg(input_path: str, output_dir: str) -> str | None:
@@ -291,15 +317,14 @@ async def convert_pdf_to_dwg(input_path: str, output_dir: str) -> str | None:
 
 
 async def _merge_pdfs(pdf_paths: list[str], output_path: str) -> None:
-    """合并多个 PDF 文件为一个（使用系统 pdfunite）"""
-    proc = await asyncio.create_subprocess_exec(
-        "pdfunite", *pdf_paths, output_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise Exception(f"pdfunite 失败: {stderr.decode()[:200]}")
+    """合并多个 PDF 文件为一个（使用 pypdf）"""
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for path in pdf_paths:
+        writer.append(path)
+    with open(output_path, "wb") as f:
+        writer.write(f)
 
 
 async def _convert_dwg_via_cad2x(input_path: str, output_dir: str) -> str | None:

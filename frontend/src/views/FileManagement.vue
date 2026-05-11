@@ -11,6 +11,7 @@
         </el-select>
       </div>
       <div style="display: flex; gap: 8px;">
+        <el-button v-if="isAdmin" type="danger" plain @click="clearAllTasks" :disabled="fileStore.total === 0">清空所有任务</el-button>
         <el-button @click="downloadAll" :disabled="completedCount === 0">下载全部</el-button>
         <el-button type="primary" :disabled="selectedIds.length === 0" @click="batchDownload">
           打包下载 ({{ selectedIds.length }})
@@ -53,17 +54,8 @@
             <el-tag type="info" size="small">已删除</el-tag>
           </template>
           <template v-else>
-            <el-dropdown v-if="row.status === 'completed'" @command="(f) => fileStore.downloadFile(row.id, f)">
-              <el-button text type="primary" size="small">下载</el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="md">MD</el-dropdown-item>
-                  <el-dropdown-item command="txt">TXT</el-dropdown-item>
-                  <el-dropdown-item command="docx">DOCX</el-dropdown-item>
-                  <el-dropdown-item command="json">JSON</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <el-button v-if="row.status === 'completed'" text type="primary" size="small"
+              @click="fileStore.downloadFile(row.id, 'zip')">下载</el-button>
             <el-popconfirm :title="isAdmin ? '管理员彻底删除，不可恢复，确认？' : '确认删除？'" @confirm="deleteOne(row.id)">
               <template #reference>
                 <el-button text type="danger" size="small">{{ isAdmin ? '彻底删除' : '删除' }}</el-button>
@@ -83,6 +75,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import axios from 'axios'
 import { useFileStore } from '../stores/file'
 import { useTaskStore } from '../stores/task'
 import { useUserStore } from '../stores/user'
@@ -133,6 +126,18 @@ const deleteAll = async () => {
   await fileStore.deleteAll()
   taskStore.clearTasks()
   ElMessage.success('已全部删除')
+}
+
+const clearAllTasks = async () => {
+  await ElMessageBox.confirm('确认清空所有任务？此操作不可恢复！', '清空任务', { type: 'warning' })
+  try {
+    const { data } = await axios.post('/api/v1/admin/clear-tasks')
+    ElMessage.success(data.message)
+    fileStore.fetchFiles()
+    taskStore.clearTasks()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('清空失败')
+  }
 }
 
 const formatDuration = (seconds) => {

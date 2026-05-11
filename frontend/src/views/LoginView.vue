@@ -13,6 +13,6 @@
 <script setup>
 import { Loading } from '@element-plus/icons-vue'
 
-// 自动跳转到 OOS 统一登录
+// 自动跳转到 SSO 统一登录
 window.location.href = '/auth/login'
 </script>

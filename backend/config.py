@@ -48,12 +48,19 @@ class Settings(BaseSettings):
     # 图片和 PDF 分开队列
     image_semaphore_size: int = 4
     pdf_semaphore_size: int = 2
+    acad_concurrency: int = 12
+    acad_task_timeout: int = 3600     # ACAD 轮询超时兜底（秒），服务端自行管理转换超时
 
     # OCR 超时配置
     ocr_image_timeout: int = 300       # 单张图片 OCR 超时（秒）
     ocr_pdf_page_timeout: int = 30     # PDF 每页 OCR 超时（秒）
     libreoffice_timeout: int = 3600    # LibreOffice 转换超时（秒）
     ocr_health_timeout: int = 10       # OCR 健康检查超时（秒）
+
+    # OCR VLM 参数（影响识别精度，尤其是密集表格）
+    ocr_vlm_max_pixels: int = 2048 * 28 * 28          # 全局最大像素（默认 1536×1536 太小）
+    ocr_vlm_table_max_pixels: int = 4096 * 28 * 28    # 表格区域最大像素（关键！）
+    ocr_vlm_max_new_tokens: int = 8192                 # VLM 最大输出 token
 
     # 日志配置
     log_file: str = "data/logs/app.log"

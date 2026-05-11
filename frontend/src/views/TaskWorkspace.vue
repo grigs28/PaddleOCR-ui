@@ -1,7 +1,7 @@
 <template>
-  <div style="display: flex; height: calc(100vh - 60px);">
+  <div style="display: flex; height: calc(100vh - 60px); overflow: hidden;">
     <!-- 左列 -->
-    <div style="flex: 1; display: flex; flex-direction: column; border-right: 1px solid #e4e7ed;">
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #e4e7ed;">
       <div style="padding: 16px; border-bottom: 1px solid #e4e7ed;">
         <UploadArea />
       </div>
@@ -10,7 +10,7 @@
       </div>
     </div>
     <!-- 右列 -->
-    <div style="flex: 1; display: flex; flex-direction: column;">
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
       <div style="padding: 16px; border-bottom: 1px solid #e4e7ed; max-height: 40%; overflow: auto;">
         <TaskQueue />
       </div>

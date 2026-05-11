@@ -27,3 +27,4 @@ class Task(Base):
     processing_time: Mapped[int | None] = mapped_column(Integer, default=None)  # 处理用时（秒）
     priority: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0=用户, 1=API, 2=管理员
     deleted: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0=正常, 1=用户软删, 2=管理员硬删
+    merge_pdf: Mapped[int] = mapped_column(SmallInteger, default=0)  # DWG→PDF 多页合并

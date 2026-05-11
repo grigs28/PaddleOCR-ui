@@ -42,6 +42,7 @@ class OCRClient:
             timeout: 请求超时秒数
             skip_image: 是否跳过图片区域（CAD 图纸建议开启）
         """
+        settings = get_settings()
         payload = {
             "file": file_b64,
             "fileType": file_type,
@@ -49,6 +50,11 @@ class OCRClient:
             "restructurePages": True,
             "mergeTables": True,
             "relevelTitles": True,
+            "maxPixels": settings.ocr_vlm_max_pixels,
+            "maxNewTokens": settings.ocr_vlm_max_new_tokens,
+            "vlmExtraArgs": {
+                "table_max_pixels": settings.ocr_vlm_table_max_pixels,
+            },
         }
         if skip_image:
             payload["skipImage"] = True

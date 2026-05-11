@@ -16,6 +16,8 @@ export const useUploadStore = defineStore('upload', {
     files: [],
     uploading: false,
     outputFormats: ['markdown', 'json'],
+    mergePdf: false,
+    singlePagePdf: true,  // DWG 默认单页 PDF
   }),
   getters: {
     pendingFiles: (state) => state.files.filter(f => f.status === 'pending'),
@@ -59,10 +61,26 @@ export const useUploadStore = defineStore('upload', {
           errorMsg: null,
         })
       }
+      // 添加文件后检查是否含 DWG，默认不选文字格式（只转 PDF）
+      if (this.hasCadFiles) {
+        // splice 清空，保证 Vue 响应式更新
+        const keep = this.outputFormats.filter(f => f === 'dwg')
+        this.outputFormats.splice(0, this.outputFormats.length, ...keep)
+        this.singlePagePdf = true
+        this.mergePdf = false
+      }
     },
     removeFile(id) {
       const idx = this.files.findIndex(f => f.id === id)
-      if (idx !== -1) this.files.splice(idx, 1)
+      if (idx !== -1) {
+        const removed = this.files.splice(idx, 1)[0]
+        // 删除 CAD 文件后，若无其他 CAD 文件，恢复默认格式
+        if (!this.hasCadFiles && (getFileExtension(removed.name) === 'dwg' || getFileExtension(removed.name) === 'dxf')) {
+          if (this.outputFormats.length === 0) {
+            this.outputFormats = ['markdown', 'json']
+          }
+        }
+      }
     },
     async startUpload() {
       if (this.hasMixedCadPdf) {
@@ -73,24 +91,48 @@ export const useUploadStore = defineStore('upload', {
       const { useTaskStore } = await import('./task')
       const taskStore = useTaskStore()
 
-      for (const file of this.files.filter(f => f.status === 'pending')) {
+      const pending = this.files.filter(f => f.status === 'pending')
+
+      // 阶段1: 并行上传全部文件
+      await Promise.all(pending.map(async (file) => {
         file.status = 'uploading'
         try {
           const formData = new FormData()
           formData.append('file', file.raw)
           formData.append('task_type', 'ocr')
           formData.append('output_formats', JSON.stringify(this.outputFormats))
+          formData.append('merge_pdf', this.mergePdf ? 'true' : 'false')
           const { data } = await axios.post('/api/v1/tasks', formData)
           file.taskId = data.task_id
           file.status = 'done'
-          taskStore.addActiveTask({ id: data.task_id, input_filename: file.name, input_file_size: file.size, status: 'queued', progress: 0 })
         } catch (e) {
           file.status = 'error'
           file.errorMsg = e.response?.data?.detail || '上传失败'
         }
+      }))
+
+      // 阶段2: 全部上传完成后，统一加入任务列表（触发并发处理）
+      for (const file of pending.filter(f => f.status === 'done')) {
+        taskStore.addActiveTask({ id: file.taskId, input_filename: file.name, input_file_size: file.size, status: 'queued', progress: 0 })
       }
+
       this.uploading = false
       this.files = this.files.filter(f => f.status === 'pending' || f.status === 'error')
+    },
+    toggleFormat(format) {
+      const idx = this.outputFormats.indexOf(format)
+      if (idx !== -1) {
+        // 取消勾选
+        this.outputFormats.splice(idx, 1)
+      } else if (format === 'dwg') {
+        // 勾选 DWG 时，清除其他所有格式和合并选项
+        this.outputFormats = ['dwg']
+        this.mergePdf = false
+      } else {
+        // 勾选非 DWG 格式时，移除 DWG
+        this.outputFormats = this.outputFormats.filter(f => f !== 'dwg')
+        this.outputFormats.push(format)
+      }
     },
     clearCompleted() {
       this.files = this.files.filter(f => f.status !== 'done')

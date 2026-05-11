@@ -85,13 +85,13 @@
         <el-form label-width="200px" size="small">
           <el-form-item v-for="(meta, key) in strSettings" :key="key" :label="meta.label">
             <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
-              <el-input v-model="settingsData[key].value" :type="key === 'acad_service_apikey' ? 'password' : 'text'"
-                :show-password="key === 'acad_service_apikey'" style="flex: 1;" placeholder="留空则不启用" />
+              <el-input v-model="settingsData[key].value" :type="(key === 'acad_service_apikey' || key === 'db_password') ? 'password' : 'text'"
+                :show-password="key === 'acad_service_apikey' || key === 'db_password'" style="flex: 1;" placeholder="留空则不启用" />
               <el-button v-if="key === 'ocr_service_url'" size="small" :loading="testingOcr"
                 @click="testConnection('ocr')">
                 测试连接
               </el-button>
-              <el-button v-if="key === 'acad_service_apikey'" size="small" :loading="testingAcad"
+              <el-button v-if="key === 'acad_service_url'" size="small" :loading="testingAcad"
                 @click="testConnection('acad')">
                 测试连接
               </el-button>

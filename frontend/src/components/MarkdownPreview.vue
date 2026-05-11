@@ -9,7 +9,7 @@
     </div>
     <div style="flex: 1; overflow: auto; padding: 16px; background: #fff; border-radius: 4px;">
       <div v-if="!result" style="color: #c0c4cc; text-align: center; padding: 40px;">选择已完成任务查看结果</div>
-      <div v-else-if="viewMode === 'md'" v-html="renderedHtml" class="markdown-body"></div>
+      <div v-else-if="viewMode === 'md'" v-html="renderedHtml" class="markdown-body" style="word-break: break-word; overflow-wrap: break-word;"></div>
       <pre v-else style="white-space: pre-wrap; word-break: break-word; font-size: 14px;">{{ plainText }}</pre>
     </div>
   </div>

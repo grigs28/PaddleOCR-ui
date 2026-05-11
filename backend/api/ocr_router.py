@@ -13,7 +13,7 @@ from backend.utils.file_utils import (
     get_upload_path, format_file_size, sanitize_filename, is_pdf_file,
 )
 
-SUPPORTED_FORMATS = {"markdown", "txt", "docx", "json", "html"}
+SUPPORTED_FORMATS = {"markdown", "txt", "docx", "json", "html", "dwg"}
 
 router = APIRouter(prefix="/api/v1", tags=["OCR 任务"])
 
@@ -83,6 +83,7 @@ async def create_task(
     file: UploadFile = File(...),
     task_type: str = Form("ocr"),
     output_formats: str = Form('["markdown"]'),
+    merge_pdf: str = Form('false'),
 ):
     """提交 OCR 任务"""
     user_id, priority = await _get_user_id_and_priority(request)
@@ -121,7 +122,9 @@ async def create_task(
         if not isinstance(formats_list, list):
             raise ValueError
         formats_list = [f for f in formats_list if f in SUPPORTED_FORMATS]
-        if not formats_list:
+        # DWG/DXF 文件允许空格式（仅转 PDF），其他文件默认 markdown
+        is_cad = get_file_extension(filename) in ('dwg', 'dxf')
+        if not formats_list and not is_cad:
             formats_list = ["markdown"]
     except (json.JSONDecodeError, ValueError):
         formats_list = ["markdown"]
@@ -138,6 +141,7 @@ async def create_task(
             input_file_size=file_size,
             output_formats=formats_json,
             priority=priority,
+            merge_pdf=1 if merge_pdf.lower() == 'true' else 0,
         )
         session.add(task)
         await session.commit()
