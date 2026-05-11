@@ -38,8 +38,14 @@ const activeTab = ref('workspace')
 onMounted(() => { userStore.fetchUser() })
 
 const handleLogout = async () => {
-  await axios.post('/auth/logout').catch(() => {})
-  document.cookie = 'paddleocr_session=; path=/; max-age=0'
-  window.location.href = '/auth/login'
+  try {
+    const { data } = await axios.post('/auth/logout')
+    document.cookie = 'paddleocr_session=; path=/; max-age=0'
+    // 跳 SSO logout 清掉 SSO session
+    window.location.href = data.sso_logout || '/auth/login'
+  } catch {
+    document.cookie = 'paddleocr_session=; path=/; max-age=0'
+    window.location.href = '/auth/login'
+  }
 }
 </script>

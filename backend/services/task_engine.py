@@ -231,21 +231,37 @@ class TaskEngine:
                             # 构造空的 ocr_result，仅用于保存 PDF
                             ocr_result = {"markdown": "", "pages": 1, "images": {}}
                         else:
-                            # 有文字格式 → DXF 文字 + OCR 双输出
+                            # 有文字格式 → 逐个 OCR 所有 PDF，合并结果
+                            # merge=True 时 convert_dwg_to_pdf 已合并为 1 个 PDF
+                            # merge=False 时返回多个 PDF，每个都 OCR
                             await self._push_progress(task_id, task.user_id, 80, phase="ocr")
-                            ocr_result = await ocr_client.recognize_pdf(pdf_paths[0])
+                            all_md, total_pages, all_images, all_structured = [], 0, {}, []
+                            for pi, pdf_p in enumerate(pdf_paths):
+                                logger.info(f"任务 {task_id} OCR PDF [{pi+1}/{len(pdf_paths)}]: {os.path.basename(pdf_p)}")
+                                r = await ocr_client.recognize_pdf(pdf_p)
+                                if r["markdown"]:
+                                    all_md.append(r["markdown"])
+                                total_pages += r.get("pages", 1)
+                                all_images.update(r.get("images", {}))
+                                all_structured.extend(r.get("structured", []))
+                            ocr_result = {
+                                "markdown": "\n\n".join(all_md),
+                                "pages": total_pages,
+                                "images": all_images,
+                                "structured": all_structured,
+                            }
 
                     elif is_image_file(filename):
                         ocr_result = await ocr_client.recognize_image(file_path)
                     elif is_pdf_file(filename):
                         # PDF: 根据 output_formats 判断走 OCR 还是转 DWG
-                        output_formats = []
+                        pdf_formats = []
                         try:
-                            output_formats = json.loads(task.output_formats or '["markdown"]')
+                            pdf_formats = json.loads(task.output_formats or '["markdown"]')
                         except Exception:
-                            output_formats = ["markdown"]
+                            pdf_formats = ["markdown"]
 
-                        if 'dwg' in output_formats:
+                        if 'dwg' in pdf_formats:
                             # PDF→DWG 纯转换
                             dwg_path = await convert_pdf_to_dwg(file_path, os.path.dirname(file_path))
                             if not dwg_path:
@@ -366,27 +382,27 @@ class TaskEngine:
                             pass
 
                     # 按用户选择的格式生成多格式输出
-                    output_formats = []
+                    save_formats = []
                     try:
-                        output_formats = json.loads(task.output_formats or '["markdown"]')
+                        save_formats = json.loads(task.output_formats or '["markdown"]')
                     except Exception:
-                        output_formats = ["markdown"]
+                        save_formats = ["markdown"]
 
                     from backend.services.export_service import ExportService
                     txt_content = None
-                    if "txt" in output_formats or "json" in output_formats:
+                    if "txt" in save_formats or "json" in save_formats:
                         txt_content = ExportService.md_to_txt(md_text)
-                    if "txt" in output_formats:
+                    if "txt" in save_formats:
                         with open(os.path.join(result_dir, "result.txt"), "w", encoding="utf-8") as f:
                             f.write(txt_content)
-                    if "json" in output_formats:
+                    if "json" in save_formats:
                         with open(os.path.join(result_dir, "result.json"), "w", encoding="utf-8") as f:
                             json.dump({
                                 "pages": ocr_result["pages"],
                                 "structured_pages": ocr_result.get("structured", []),
                                 "markdown": md_text,
                             }, f, ensure_ascii=False, indent=2)
-                    if "docx" in output_formats:
+                    if "docx" in save_formats:
                         docx_bytes = ExportService.md_to_docx(md_text)
                         with open(os.path.join(result_dir, "result.docx"), "wb") as f:
                             f.write(docx_bytes)

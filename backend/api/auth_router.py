@@ -152,7 +152,18 @@ async def logout(request: Request):
     session_id = request.cookies.get(_COOKIE_NAME)
     if session_id:
         session_mgr.delete_session(session_id)
-    response = JSONResponse(content={"message": "已登出"})
+    response = JSONResponse(content={"message": "已登出", "sso_logout": f"{settings.yz_login_url}/logout"})
+    response.delete_cookie(_COOKIE_NAME)
+    return response
+
+
+@router.get("/logout")
+async def logout_redirect(request: Request):
+    """GET 退出：清 session 后跳转 SSO logout"""
+    session_id = request.cookies.get(_COOKIE_NAME)
+    if session_id:
+        session_mgr.delete_session(session_id)
+    response = RedirectResponse(url=f"{settings.yz_login_url}/logout")
     response.delete_cookie(_COOKIE_NAME)
     return response
 

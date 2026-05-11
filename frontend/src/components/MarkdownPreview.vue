@@ -23,7 +23,7 @@ import MarkdownIt from 'markdown-it'
 
 const props = defineProps({ result: String, taskId: Number })
 const viewMode = ref('md')
-const md = new MarkdownIt()
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
 
 const renderedHtml = computed(() => props.result ? md.render(props.result) : '')
 const plainText = computed(() => props.result || '')
@@ -39,3 +39,59 @@ const handleDownload = (format) => {
   }
 }
 </script>
+
+<style scoped>
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #303133;
+}
+.markdown-body h1 { font-size: 22px; margin: 20px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #e4e7ed; }
+.markdown-body h2 { font-size: 18px; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #ebeef5; }
+.markdown-body h3 { font-size: 16px; margin: 14px 0 6px; }
+.markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size: 14px; margin: 10px 0 4px; }
+.markdown-body p { margin: 8px 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 24px; margin: 8px 0; }
+.markdown-body li { margin: 4px 0; }
+.markdown-body blockquote { margin: 8px 0; padding: 8px 16px; border-left: 4px solid #dcdfe6; background: #f5f7fa; color: #606266; }
+.markdown-body code { background: #f5f7fa; padding: 2px 6px; border-radius: 3px; font-size: 13px; color: #e96900; }
+.markdown-body pre { background: #fafafa; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
+.markdown-body pre code { background: none; padding: 0; color: inherit; }
+.markdown-body img { max-width: 100%; height: auto; margin: 8px 0; }
+.markdown-body hr { border: none; border-top: 1px solid #e4e7ed; margin: 16px 0; }
+/* 表格样式 — 单线 */
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  border: none;
+  margin: 12px 0;
+  font-size: 13px;
+  table-layout: auto;
+}
+.markdown-body table th,
+.markdown-body table td {
+  border: 1px solid #dcdfe6;
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.markdown-body table th {
+  background: #f5f7fa;
+  font-weight: 600;
+  color: #303133;
+}
+.markdown-body table tr:hover td {
+  background: #f5f7fa;
+}
+.markdown-body table tr:nth-child(even) td {
+  background: #fafafa;
+}
+.markdown-body table tr:nth-child(even):hover td {
+  background: #f5f7fa;
+}
+/* HPS 返回的内联样式表格也做兜底 */
+.markdown-body table td[style*="text-align: center"] {
+  text-align: center;
+}
+</style>
