@@ -130,6 +130,7 @@ class TaskEngine:
             filename = task.input_filename or ""
             file_path = task.input_file_path or ""
             file_size = task.input_file_size or 0
+            high_precision = bool(task.high_precision)
 
             if not os.path.exists(file_path):
                 await self._update_status(task_id, "failed", error="文件不存在")
@@ -188,7 +189,7 @@ class TaskEngine:
                             # 标记阶段1完成
                             await self._push_progress(task_id, task.user_id, 50, phase="ocr")
                             if pdf_path:
-                                ocr_result = await ocr_client.recognize_pdf(pdf_path)
+                                ocr_result = await ocr_client.recognize_pdf(pdf_path, high_precision=high_precision)
 
                         # LibreOffice 不可用或转换失败，直接提取文本
                         if ocr_result is None:
@@ -238,7 +239,7 @@ class TaskEngine:
                             all_md, total_pages, all_images, all_structured = [], 0, {}, []
                             for pi, pdf_p in enumerate(pdf_paths):
                                 logger.info(f"任务 {task_id} OCR PDF [{pi+1}/{len(pdf_paths)}]: {os.path.basename(pdf_p)}")
-                                r = await ocr_client.recognize_pdf(pdf_p)
+                                r = await ocr_client.recognize_pdf(pdf_p, high_precision=high_precision)
                                 if r["markdown"]:
                                     all_md.append(r["markdown"])
                                 total_pages += r.get("pages", 1)
@@ -252,7 +253,7 @@ class TaskEngine:
                             }
 
                     elif is_image_file(filename):
-                        ocr_result = await ocr_client.recognize_image(file_path)
+                        ocr_result = await ocr_client.recognize_image(file_path, high_precision=high_precision)
                     elif is_pdf_file(filename):
                         # PDF: 根据 output_formats 判断走 OCR 还是转 DWG
                         pdf_formats = []
@@ -312,7 +313,7 @@ class TaskEngine:
                                 pass
                             return
                         else:
-                            ocr_result = await ocr_client.recognize_pdf(file_path)
+                            ocr_result = await ocr_client.recognize_pdf(file_path, high_precision=high_precision)
                     else:
                         await self._update_status(task_id, "failed", error=f"不支持的文件类型: {filename}")
                         return

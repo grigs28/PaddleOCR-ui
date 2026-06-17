@@ -43,6 +43,15 @@
           :disabled="uploadStore.outputFormats.includes('dwg')"
           @change="uploadStore.mergePdf && (uploadStore.singlePagePdf = false)">合并 PDF</el-checkbox>
       </template>
+      <!-- 高精度模式（右对齐）：CAD 图纸 / 密集小字表格 提升分辨率 -->
+      <el-tooltip
+        content="适用于 AutoCAD 图纸、密集小字表格等场景，VLM 输入分辨率提升至 ~10MP，识别更清晰但耗时增加约 50%。普通文档无需开启。"
+        placement="top">
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 12px; color: #909399;">高精度</span>
+          <el-switch v-model="uploadStore.highPrecision" size="small" />
+        </div>
+      </el-tooltip>
     </div>
     <div v-if="uploadStore.hasMixedCadPdf" style="margin-top: 4px; color: #f56c6c; font-size: 12px;">
       不能同时上传 DWG 和 PDF 文件

@@ -1,6 +1,6 @@
 # PaddleOCR-UI API 调用文档
 
-> Base URL: `http://192.168.0.19:5553`
+> Base URL: `http://192.168.0.8:5553`
 >
 > 所有接口（除登录/回调外）均需认证，支持两种方式：
 > - **Cookie**: 浏览器登录后自动携带 `paddleocr_session`
@@ -86,7 +86,7 @@ curl -X POST \
   -H "X-API-Key: ak_xxxxx" \
   -F "file=@/path/to/document.pdf" \
   -F 'output_formats=["markdown","json"]' \
-  http://192.168.0.19:5553/api/v1/tasks
+  http://192.168.0.8:5553/api/v1/tasks
 ```
 
 **Python 示例：**
@@ -94,7 +94,7 @@ curl -X POST \
 ```python
 import requests
 
-url = "http://192.168.0.19:5553/api/v1/tasks"
+url = "http://192.168.0.8:5553/api/v1/tasks"
 headers = {"X-API-Key": "ak_xxxxx"}
 
 with open("document.pdf", "rb") as f:
@@ -264,23 +264,23 @@ X-API-Key: ak_xxxxx
 ```bash
 # 下载 Markdown
 curl -O -H "X-API-Key: ak_xxxxx" \
-  "http://192.168.0.19:5553/api/v1/files/27/download?format=md"
+  "http://192.168.0.8:5553/api/v1/files/27/download?format=md"
 
 # 下载纯文本
 curl -O -H "X-API-Key: ak_xxxxx" \
-  "http://192.168.0.19:5553/api/v1/files/27/download?format=txt"
+  "http://192.168.0.8:5553/api/v1/files/27/download?format=txt"
 
 # 下载 DOCX
 curl -O -H "X-API-Key: ak_xxxxx" \
-  "http://192.168.0.19:5553/api/v1/files/27/download?format=docx"
+  "http://192.168.0.8:5553/api/v1/files/27/download?format=docx"
 
 # 下载 JSON（含结构化数据）
 curl -O -H "X-API-Key: ak_xxxxx" \
-  "http://192.168.0.19:5553/api/v1/files/27/download?format=json"
+  "http://192.168.0.8:5553/api/v1/files/27/download?format=json"
 
 # 下载 ZIP 打包（源文件 + 图片 + 全部结果）
 curl -O -H "X-API-Key: ak_xxxxx" \
-  "http://192.168.0.19:5553/api/v1/files/27/download?format=zip"
+  "http://192.168.0.8:5553/api/v1/files/27/download?format=zip"
 ```
 
 ### 3.3 批量下载
@@ -310,7 +310,7 @@ X-API-Key: ak_xxxxx
 curl -o results.zip -H "X-API-Key: ak_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"file_ids":[20,21,22],"format":"md"}' \
-  http://192.168.0.19:5553/api/v1/files/batch-download
+  http://192.168.0.8:5553/api/v1/files/batch-download
 ```
 
 ### 3.4 预览原文件
@@ -347,7 +347,7 @@ X-API-Key: ak_xxxxx
 import requests
 import time
 
-BASE = "http://192.168.0.19:5553"
+BASE = "http://192.168.0.8:5553"
 HEADERS = {"X-API-Key": "ak_xxxxx"}
 
 
@@ -407,7 +407,7 @@ if __name__ == "__main__":
 ### curl 完整流程
 
 ```bash
-API="http://192.168.0.19:5553"
+API="http://192.168.0.8:5553"
 KEY="X-API-Key: ak_xxxxx"
 
 # 1. 提交

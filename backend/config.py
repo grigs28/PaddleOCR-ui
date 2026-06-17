@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     ocr_vlm_max_pixels: int = 2048 * 28 * 28          # 全局最大像素（默认 1536×1536 太小）
     ocr_vlm_table_max_pixels: int = 4096 * 28 * 28    # 表格区域最大像素（关键！）
     ocr_vlm_max_new_tokens: int = 8192                 # VLM 最大输出 token
+    # 高精度模式（CAD 图纸 / 密集小字表格）：提高 VLM 输入分辨率，耗时 +50%
+    ocr_vlm_max_pixels_high: int = 12700 * 28 * 28         # ~10MP（小字可读阈值）
+    ocr_vlm_table_max_pixels_high: int = 25400 * 28 * 28   # ~20MP（表格区域）
 
     # 日志配置
     log_file: str = "data/logs/app.log"

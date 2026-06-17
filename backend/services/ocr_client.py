@@ -31,7 +31,7 @@ class OCRClient:
 
     async def _call_layout_parsing(
         self, file_b64: str, file_type: int, timeout: int = 600,
-        skip_image: bool = False,
+        skip_image: bool = False, high_precision: bool = False,
     ) -> dict:
         """
         调用 HPS /layout-parsing 接口
@@ -41,8 +41,15 @@ class OCRClient:
             file_type: 0=PDF, 1=图片
             timeout: 请求超时秒数
             skip_image: 是否跳过图片区域（CAD 图纸建议开启）
+            high_precision: 高精度模式（CAD 图纸/密集小字表格），maxPixels 提升至 ~10MP
         """
         settings = get_settings()
+        if high_precision:
+            max_pixels = settings.ocr_vlm_max_pixels_high
+            table_max_pixels = settings.ocr_vlm_table_max_pixels_high
+        else:
+            max_pixels = settings.ocr_vlm_max_pixels
+            table_max_pixels = settings.ocr_vlm_table_max_pixels
         payload = {
             "file": file_b64,
             "fileType": file_type,
@@ -50,10 +57,10 @@ class OCRClient:
             "restructurePages": True,
             "mergeTables": True,
             "relevelTitles": True,
-            "maxPixels": settings.ocr_vlm_max_pixels,
+            "maxPixels": max_pixels,
             "maxNewTokens": settings.ocr_vlm_max_new_tokens,
             "vlmExtraArgs": {
-                "table_max_pixels": settings.ocr_vlm_table_max_pixels,
+                "table_max_pixels": table_max_pixels,
             },
         }
         if skip_image:
@@ -69,7 +76,7 @@ class OCRClient:
                     raise Exception(f"OCR 服务返回 {resp.status}: {text[:200]}")
                 return await resp.json()
 
-    async def recognize_image(self, image_path: str) -> dict:
+    async def recognize_image(self, image_path: str, high_precision: bool = False) -> dict:
         """
         识别单张图片
 
@@ -77,10 +84,13 @@ class OCRClient:
             {"markdown": "识别文本", "pages": 1, "raw_response": {...}}
         """
         file_b64 = self._encode_file_b64(image_path)
-        data = await self._call_layout_parsing(file_b64, file_type=1, timeout=get_settings().ocr_image_timeout)
+        data = await self._call_layout_parsing(
+            file_b64, file_type=1, timeout=get_settings().ocr_image_timeout,
+            high_precision=high_precision,
+        )
         return self._parse_response(data)
 
-    async def recognize_pdf(self, pdf_path: str, num_pages: int = 0, skip_image: bool = False) -> dict:
+    async def recognize_pdf(self, pdf_path: str, num_pages: int = 0, skip_image: bool = False, high_precision: bool = False) -> dict:
         """
         识别 PDF 文件
 
@@ -88,14 +98,20 @@ class OCRClient:
             pdf_path: PDF 文件路径
             num_pages: 预估页数（用于计算超时）
             skip_image: 是否跳过图片区域（CAD 图纸建议开启）
+            high_precision: 高精度模式（CAD 图纸/密集小字表格），maxPixels 提升至 ~10MP
 
         Returns:
             {"markdown": "识别文本", "pages": N, "raw_response": {...}}
         """
         file_b64 = self._encode_file_b64(pdf_path)
-        # 根据页数计算超时
+        # 高精度模式耗时增加，按比例放宽超时
         timeout = max(300, (num_pages or 50) * get_settings().ocr_pdf_page_timeout + 60)
-        data = await self._call_layout_parsing(file_b64, file_type=0, timeout=timeout, skip_image=skip_image)
+        if high_precision:
+            timeout = int(timeout * 1.5)
+        data = await self._call_layout_parsing(
+            file_b64, file_type=0, timeout=timeout, skip_image=skip_image,
+            high_precision=high_precision,
+        )
         return self._parse_response(data)
 
     def _parse_response(self, data: dict) -> dict:
