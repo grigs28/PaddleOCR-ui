@@ -52,6 +52,15 @@
           <el-switch v-model="uploadStore.highPrecision" size="small" />
         </div>
       </el-tooltip>
+      <!-- 引擎选择（最右） -->
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 12px; color: #909399;">引擎</span>
+        <el-select v-model="uploadStore.engine" size="small" style="width: 150px;">
+          <el-option label="PaddleOCR-VL 1.6" value="vl16" />
+          <el-option label="PP-OCRv6" value="ppocrv6" />
+          <el-option label="MinerU" value="mineru" />
+        </el-select>
+      </div>
     </div>
     <div v-if="uploadStore.hasMixedCadPdf" style="margin-top: 4px; color: #f56c6c; font-size: 12px;">
       不能同时上传 DWG 和 PDF 文件

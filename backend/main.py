@@ -76,7 +76,12 @@ async def _auto_migrate():
             col_type = str(col.type).upper()
             default = ""
             if col.default is not None:
-                default = f" DEFAULT {col.default.arg}"
+                val = col.default.arg
+                # 字符串类型 default 需加单引号（VARCHAR/CHAR/TEXT）
+                if isinstance(val, str) or any(t in col_type for t in ("VARCHAR", "CHAR", "TEXT")):
+                    default = f" DEFAULT '{val}'"
+                else:
+                    default = f" DEFAULT {val}"
             elif col.server_default is not None:
                 default = f" DEFAULT {col.server_default.arg}"
             sql = f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}{default}"

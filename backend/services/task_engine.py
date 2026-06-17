@@ -131,6 +131,7 @@ class TaskEngine:
             file_path = task.input_file_path or ""
             file_size = task.input_file_size or 0
             high_precision = bool(task.high_precision)
+            engine = task.engine or "vl16"
 
             if not os.path.exists(file_path):
                 await self._update_status(task_id, "failed", error="文件不存在")
@@ -150,6 +151,12 @@ class TaskEngine:
                 sem = self.pdf_semaphore
             else:
                 sem = self.image_semaphore
+
+            # 非 VL 引擎（PP-OCRv6 / MinerU）走独立处理流程
+            if engine in ("ppocrv6", "mineru"):
+                async with sem:
+                    await self._process_engine_task(task_id, task.user_id, filename, file_path, engine)
+                return
 
             async def _run_with_sem():
                 await self._update_status(task_id, "processing")
@@ -479,6 +486,103 @@ class TaskEngine:
                     await _run_with_sem()
             else:
                 await _run_with_sem()
+
+    async def _process_engine_task(self, task_id: int, user_id: int, filename: str, file_path: str, engine: str):
+        """PP-OCRv6 / MinerU 引擎处理流程（独立于 VL 流程）
+
+        Office/CAD 先转 PDF，再送引擎。MinerU 结果全量解压到 result_dir。
+        """
+        import shutil
+        from backend.utils.file_utils import (
+            get_result_path, is_pdf_file, is_image_file, is_doc_file, is_cad_file,
+        )
+        from backend.services.doc_converter import (
+            convert_to_pdf, convert_dwg_to_pdf, is_libreoffice_available,
+        )
+
+        await self._update_status(task_id, "processing")
+        started_at = datetime.now()
+        await self._update_field(task_id, "started_at", started_at)
+        wall_start = time.monotonic()
+
+        try:
+            work_path = file_path
+            is_pdf = is_pdf_file(filename)
+            is_img = is_image_file(filename)
+
+            # 非 PDF/图片先转 PDF（Office 走 LibreOffice，CAD 走 ACAD）
+            if not (is_pdf or is_img):
+                if is_doc_file(filename) and is_libreoffice_available():
+                    pdf_path = await convert_to_pdf(file_path, os.path.dirname(file_path))
+                    if pdf_path:
+                        work_path = pdf_path
+                        is_pdf = True
+                elif is_cad_file(filename):
+                    pdfs = await convert_dwg_to_pdf(file_path, os.path.dirname(file_path), merge=True)
+                    if pdfs:
+                        work_path = pdfs[0]
+                        is_pdf = True
+                if not is_pdf and not is_img:
+                    await self._update_status(task_id, "failed", error=f"引擎 {engine} 仅支持 PDF/图片（及可转 PDF 的文档）: {filename}")
+                    return
+
+            await self._push_progress(task_id, user_id, 10)
+
+            # 调引擎
+            result_dir = get_result_path(str(task_id))
+            if engine == "ppocrv6":
+                ocr_result = await ocr_client.recognize_ppocrv6(work_path, is_pdf)
+            else:  # mineru
+                from backend.services.mineru_client import process_mineru
+                ocr_result = await process_mineru(work_path, result_dir)
+
+            await self._push_progress(task_id, user_id, 90)
+
+            # 保存 markdown（MinerU 已解压全量结果到 result_dir，这里统一写 result.md 供前端读取）
+            md_text = ocr_result["markdown"]
+            with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
+                f.write(md_text)
+
+            # 保留源文件
+            source_dest = os.path.join(result_dir, f"source_{filename}")
+            shutil.copy2(file_path, source_dest)
+
+            # 清理转换产生的临时 PDF（非源文件）
+            if work_path != file_path and os.path.exists(work_path):
+                try:
+                    os.remove(work_path)
+                except OSError:
+                    pass
+
+            processing_seconds = int(time.monotonic() - wall_start)
+            completed_at = datetime.now()
+            async with async_session() as s:
+                await s.execute(
+                    update(Task).where(Task.id == task_id).values(
+                        result_path=result_dir,
+                        progress=100,
+                        page_total=ocr_result["pages"],
+                        page_current=ocr_result["pages"],
+                        processing_time=processing_seconds,
+                        completed_at=completed_at,
+                        status="completed",
+                    )
+                )
+                await s.commit()
+
+            logger.info(f"任务 {task_id} [{engine}] 完成, {len(md_text)}字符, {processing_seconds}秒")
+
+            try:
+                from backend.ws.progress import progress_manager
+                await progress_manager.send_progress(user_id, task_id, {
+                    "status": "completed", "progress": 100, "processing_time": processing_seconds,
+                })
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.error(f"任务 {task_id} [{engine}] 异常: {e}")
+            await self._update_status(task_id, "failed", error=str(e))
 
     async def _progress_loop(self, task_id: int, user_id: int, file_size: int, wall_start: float, two_phase: bool = False):
         """每 5 秒估算进度并推送。two_phase 时: 0-50=转换PDF, 50-100=OCR"""

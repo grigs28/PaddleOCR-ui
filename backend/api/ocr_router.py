@@ -85,6 +85,7 @@ async def create_task(
     output_formats: str = Form('["markdown"]'),
     merge_pdf: str = Form('false'),
     high_precision: str = Form('true'),
+    engine: str = Form('vl16'),
 ):
     """提交 OCR 任务"""
     user_id, priority = await _get_user_id_and_priority(request)
@@ -144,6 +145,7 @@ async def create_task(
             priority=priority,
             merge_pdf=1 if merge_pdf.lower() == 'true' else 0,
             high_precision=1 if high_precision.lower() == 'true' else 0,
+            engine=engine if engine in ('vl16', 'ppocrv6', 'mineru') else 'vl16',
         )
         session.add(task)
         await session.commit()

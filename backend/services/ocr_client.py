@@ -176,6 +176,47 @@ class OCRClient:
             "images": images,
         }
 
+    async def recognize_ppocrv6(self, file_path: str, is_pdf: bool) -> dict:
+        """PP-OCRv6 文字识别（零幻觉，返回文字行；不做表格结构化）
+
+        Args:
+            file_path: 文件路径
+            is_pdf: True=PDF(fileType=0), False=图片(fileType=1)
+        """
+        settings = get_settings()
+        file_b64 = self._encode_file_b64(file_path)
+        payload = {"file": file_b64, "fileType": 0 if is_pdf else 1}
+        async with aiohttp.ClientSession() as client:
+            async with client.post(
+                f"{settings.ppocrv6_service_url}/ocr",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=900),
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise Exception(f"PP-OCRv6 服务返回 {resp.status}: {text[:200]}")
+                data = await resp.json()
+        if data.get("errorCode") != 0:
+            raise Exception(f"PP-OCRv6 处理失败: {data.get('errorMsg', '未知错误')}")
+
+        result = data.get("result", {})
+        ocr_results = result.get("ocrResults", [])
+        num_pages = result.get("dataInfo", {}).get("numPages", len(ocr_results))
+
+        # 拼接文字行（PP-OCRv6 不结构化表格，按识别顺序逐行）
+        md_parts = []
+        for page in ocr_results:
+            pr = page.get("prunedResult", {})
+            for t in pr.get("rec_texts", []):
+                if t and t.strip():
+                    md_parts.append(t.strip())
+        return {
+            "markdown": "\n".join(md_parts),
+            "pages": num_pages,
+            "structured": [],
+            "images": {},
+        }
+
     async def health_check(self) -> bool:
         """检查 OCR 服务健康状态"""
         try:

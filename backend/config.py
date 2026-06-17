@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     acad_service_url: str = "http://192.168.0.5:5557"
     acad_service_apikey: str = ""
 
+    # PP-OCRv6 服务（零幻觉文字识别，0.71:5561）
+    ppocrv6_service_url: str = "http://192.168.0.71:5561"
+    # MinerU 服务（VLM 文档解析，0.71:5555）
+    mineru_service_url: str = "http://192.168.0.71:5555"
+
     # OOS 统一登录配置
     yz_login_url: str = "http://localhost:5551"
     callback_url: str = "http://localhost:5553/auth/callback"

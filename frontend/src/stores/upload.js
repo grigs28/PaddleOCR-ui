@@ -19,6 +19,7 @@ export const useUploadStore = defineStore('upload', {
     mergePdf: false,
     singlePagePdf: true,  // DWG 默认单页 PDF
     highPrecision: true,  // 高精度模式（CAD 图纸/密集小字表格），maxPixels 提升至 ~10MP
+    engine: 'vl16',  // OCR 引擎：vl16(PaddleOCR-VL-1.6) / ppocrv6(PP-OCRv6) / mineru(MinerU)
   }),
   getters: {
     pendingFiles: (state) => state.files.filter(f => f.status === 'pending'),
@@ -104,6 +105,7 @@ export const useUploadStore = defineStore('upload', {
           formData.append('output_formats', JSON.stringify(this.outputFormats))
           formData.append('merge_pdf', this.mergePdf ? 'true' : 'false')
           formData.append('high_precision', this.highPrecision ? 'true' : 'false')
+          formData.append('engine', this.engine)
           const { data } = await axios.post('/api/v1/tasks', formData)
           file.taskId = data.task_id
           file.status = 'done'
