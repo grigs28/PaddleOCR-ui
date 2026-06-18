@@ -225,9 +225,27 @@ async def get_task(task_id: int, request: Request):
             if os.path.exists(md_path):
                 with open(md_path, "r", encoding="utf-8") as f:
                     result_text = f.read()
+            # 原始 JSON（优先级：原始响应 > 结构化数据 > ExportService 导出）
+            raw_json = os.path.join(task.result_path, "result.raw.json")
             json_path = os.path.join(task.result_path, "result.json")
-            if os.path.exists(json_path):
-                with open(json_path, "r", encoding="utf-8") as f:
+            # 1) OCR 服务原始响应
+            if os.path.exists(raw_json):
+                target = raw_json
+            else:
+                # 2) MinerU：vlm/ 子目录下的原始 content_list.json
+                target = None
+                for root, _dirs, files in os.walk(task.result_path):
+                    for f in files:
+                        if f.endswith("_content_list.json"):
+                            target = os.path.join(root, f)
+                            break
+                    if target:
+                        break
+                # 3) 降级：ExportService 导出的 result.json
+                if not target:
+                    target = json_path
+            if os.path.exists(target):
+                with open(target, "r", encoding="utf-8") as f:
                     result_json_text = f.read()
 
         # PP-OCRv6 坐标数据（供前端可视化文字层渲染）
