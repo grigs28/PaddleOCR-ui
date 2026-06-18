@@ -23,7 +23,7 @@ import MarkdownIt from 'markdown-it'
 
 const props = defineProps({ result: String, taskId: Number })
 const viewMode = ref('md')
-const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true }).enable('table')
 
 const renderedHtml = computed(() => props.result ? md.render(props.result) : '')
 const plainText = computed(() => props.result || '')
