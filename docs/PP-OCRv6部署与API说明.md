@@ -57,11 +57,15 @@ curl -X POST http://host:5553/api/v1/tasks \
 ```
 
 **引擎路由逻辑**（`task_engine.py`）：
-- `engine` 为空或不传 → 默认 `vl16`（PaddleOCR-VL-1.6），走现有流程
+- `engine` 为空或不传 → 默认 `mineru`（MinerU），走 `_process_engine_task`
 - `vl16` → 现有 OCR 流水线，受 `high_precision` 影响
-- `ppocrv6` / `mineru` → `_process_engine_task` 独立流程（Office/CAD 先转 PDF），不走 VL 逻辑
+- `ppocrv6` / `mineru` → `_process_engine_task` 独立流程（Office/CAD 先转 PDF，含多格式输出），不走 VL 逻辑
 
 **`high_precision` 的影响范围**：仅 `vl16` 引擎生效（切换 `maxPixels` 1.6MP↔10MP）；`ppocrv6` 和 `mineru` 引擎忽略此参数。
+
+**`output_formats` 多格式输出**：三引擎均支持 `markdown` / `json` / `txt` / `docx` 四种格式。
+- `dwg` 格式仅 **vl16 引擎的 PDF 源文件** 有效（PDF→DWG 转换），与其他格式互斥
+- `_process_engine_task`（ppocrv6/mineru）在 2026-06-18 补了多格式输出（`ExportService.md_to_docx / md_to_txt`）
 
 ---
 

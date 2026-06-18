@@ -543,6 +543,28 @@ class TaskEngine:
             with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
                 f.write(md_text)
 
+            # 多格式输出（txt/json/docx），复用 ExportService
+            try:
+                async with async_session() as s:
+                    t = (await s.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+                    save_formats = json.loads(t.output_formats or '["markdown"]') if t else ["markdown"]
+            except Exception:
+                save_formats = ["markdown"]
+
+            from backend.services.export_service import ExportService
+
+            if "txt" in save_formats:
+                txt_content = ExportService.md_to_txt(md_text)
+                with open(os.path.join(result_dir, "result.txt"), "w", encoding="utf-8") as f:
+                    f.write(txt_content)
+            if "json" in save_formats:
+                with open(os.path.join(result_dir, "result.json"), "w", encoding="utf-8") as f:
+                    json.dump({"pages": ocr_result["pages"], "markdown": md_text}, f, ensure_ascii=False, indent=2)
+            if "docx" in save_formats:
+                docx_bytes = ExportService.md_to_docx(md_text)
+                with open(os.path.join(result_dir, "result.docx"), "wb") as f:
+                    f.write(docx_bytes)
+
             # 保留源文件
             source_dest = os.path.join(result_dir, f"source_{filename}")
             shutil.copy2(file_path, source_dest)

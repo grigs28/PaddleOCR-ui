@@ -78,7 +78,15 @@ X-API-Key: ak_xxxxx
 
 **支持的文件类型：** pdf, jpg, jpeg, png, bmp, tiff, tif, webp, doc, docx, odt, rtf, xls, xlsx, ods, csv, ppt, pptx, odp, txt, html, htm, dwg, dxf
 
-**支持的输出格式：** markdown, json, txt, docx, dwg（DWG 仅对 PDF 文件生效，与其他格式互斥）
+**支持的输出格式：** markdown, json, txt, docx, dwg
+
+| 格式 | 说明 | 支持引擎 |
+|------|------|---------|
+| `markdown` | **所有引擎都支持**，默认值。vl16 返回结构化 MD（含表格/标题）；ppocrv6 返回纯文字行；mineru 返回 ZIP 内提取的 MD |
+| `json` | JSON 输出（各引擎结构不同：vl16 含 `structured_pages` 坐标；ppocrv6 含 `rec_texts`/`rec_scores`；mineru 含 `pages`/`markdown`） |
+| `txt` | 纯文本（`ExportService.md_to_txt` 去除 Markdown 标记后输出） |
+| `docx` | DOCX 格式（`ExportService.md_to_docx` 基于 Markdown 转换） |
+| `dwg` | 仅对 **PDF 源文件** 生效，走 CAD 转换（`convert_pdf_to_dwg`），与文字格式互斥。**仅 vl16 引擎支持** |
 
 **文件大小限制：** 1GB
 
