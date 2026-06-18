@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime
@@ -335,6 +336,8 @@ class TaskEngine:
                     # 保存结果
                     result_dir = get_result_path(str(task_id))
                     md_text = ocr_result["markdown"]
+                    # 清理 VL 返回的 <table border=1> — 去掉 3D 凸起效果，让前端 CSS 接管
+                    md_text = re.sub(r'<table\s+border\s*=\s*["\']?1["\']?', '<table', md_text)
                     md_path = os.path.join(result_dir, "result.md")
                     with open(md_path, "w", encoding="utf-8") as f:
                         f.write(md_text)
