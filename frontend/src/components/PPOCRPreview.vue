@@ -7,29 +7,16 @@
       <span style="font-size:12px; color:#909399;">{{ zoom }}%</span>
     </div>
 
-    <!-- 左右并排双面板：左原图 | 右文字层 -->
-    <div style="flex:1; display:flex; gap:4px; overflow:hidden;"
-         @scroll.passive="syncScroll">
-      <!-- 左：纯净原图 -->
-      <div ref="imgPanel" style="flex:1; overflow:auto; display:flex; justify-content:center; background:#f5f5f5; border-radius:4px;">
-        <div v-for="(page, pi) in pages" :key="'img'+pi" v-show="pi + 1 === currentPage"
-             :style="panelStyle(page)">
-          <img :src="'data:image/jpeg;base64,' + page.image"
-               style="display:block; width:100%; height:auto;" />
-        </div>
-      </div>
-
-      <!-- 右：文字层（白底，按坐标定位，文字始终可见） -->
-      <div ref="textPanel" style="flex:1; overflow:auto; display:flex; justify-content:center; background:#fff; border-radius:4px;">
-        <div v-for="(page, pi) in pages" :key="'txt'+pi" v-show="pi + 1 === currentPage"
-             style="position:relative;"
-             :style="panelStyle(page)">
-          <span v-for="(item, idx) in page.lines" :key="idx"
-                :style="lineStyle(page, item)"
-                :title="item.text + ' (' + Math.round(item.score * 100) + '%)'">
-            {{ item.text }}
-          </span>
-        </div>
+    <!-- 纯文字层：白底，按坐标定位，文字始终可见 -->
+    <div style="flex:1; overflow:auto; background:#fafafa; border-radius:4px; display:flex; justify-content:center; padding:16px;">
+      <div v-for="(page, pi) in pages" :key="pi" v-show="pi + 1 === currentPage"
+           style="position:relative; background:#fff; box-shadow: 0 1px 4px rgba(0,0,0,.1);"
+           :style="panelStyle(page)">
+        <span v-for="(item, idx) in page.lines" :key="idx"
+              :style="lineStyle(page, item)"
+              :title="item.text + ' (' + Math.round(item.score * 100) + '%)'">
+          {{ item.text }}
+        </span>
       </div>
     </div>
   </div>
@@ -44,17 +31,6 @@ const props = defineProps({
 
 const zoom = ref(100)
 const currentPage = ref(1)
-const imgPanel = ref(null)
-const textPanel = ref(null)
-
-// 双向滚动同步
-function syncScroll(e) {
-  const src = e.target
-  const dst = src === imgPanel.value ? textPanel.value : imgPanel.value
-  if (!dst) return
-  if (src.scrollLeft !== dst.scrollLeft) dst.scrollLeft = src.scrollLeft
-  if (src.scrollTop !== dst.scrollTop) dst.scrollTop = src.scrollTop
-}
 
 const pages = computed(() => {
   return props.ocrData.map(page => {
@@ -75,17 +51,16 @@ const pages = computed(() => {
       }
     }
     return {
-      image: page.ocrImage || '',
       width: page.width || 800,
       height: page.height || 600,
       lines
     }
-  }).filter(p => p.image || p.lines.length)
+  }).filter(p => p.lines.length)
 })
 
 function panelStyle(page) {
   const s = zoom.value / 100
-  return { width: (page.width * s) + 'px', height: 'auto', flexShrink: 0 }
+  return { width: (page.width * s) + 'px', height: (page.height * s) + 'px', flexShrink: 0 }
 }
 
 function lineStyle(page, item) {
