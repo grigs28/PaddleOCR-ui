@@ -3,18 +3,13 @@
     <div v-if="taskId" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
       <el-button-group>
         <el-button :type="viewMode === 'md' ? 'primary' : ''" size="small" @click="viewMode = 'md'">Markdown</el-button>
-        <el-button v-if="ppocrData" :type="viewMode === 'visual' ? 'primary' : ''" size="small" @click="viewMode = 'visual'">可视化</el-button>
         <el-button :type="viewMode === 'text' ? 'primary' : ''" size="small" @click="viewMode = 'text'">纯文本</el-button>
         <el-button v-if="resultJson" :type="viewMode === 'json' ? 'primary' : ''" size="small" @click="viewMode = 'json'">JSON</el-button>
       </el-button-group>
       <el-button size="small" @click="copyResult">复制</el-button>
     </div>
-    <!-- PP-OCRv6 可视化模式 -->
-    <div v-if="viewMode === 'visual' && ppocrData" style="flex: 1;">
-      <PPOCRPreview :ocrData="ppocrData" />
-    </div>
-    <!-- Markdown / 纯文本模式 -->
-    <div v-else style="flex: 1; overflow: auto; padding: 16px; background: #fff; border-radius: 4px;">
+    <!-- Markdown / 纯文本 / JSON 模式 -->
+    <div style="flex: 1; overflow: auto; padding: 16px; background: #fff; border-radius: 4px;">
       <div v-if="!result" style="color: #c0c4cc; text-align: center; padding: 40px;">选择已完成任务查看结果</div>
       <div v-else-if="viewMode === 'md'" v-html="renderedHtml" class="markdown-body" style="word-break: break-word; overflow-wrap: break-word;"></div>
       <pre v-else-if="viewMode === 'json'" style="white-space: pre-wrap; word-break: break-word; font-size: 13px;">{{ formattedJson }}</pre>
@@ -27,10 +22,8 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import MarkdownIt from 'markdown-it'
-import PPOCRPreview from './PPOCRPreview.vue'
-
-const props = defineProps({ result: String, resultJson: String, taskId: Number, ppocrData: { type: Array, default: null } })
-const viewMode = ref(props.ppocrData ? 'visual' : 'md')
+const props = defineProps({ result: String, resultJson: String, taskId: Number })
+const viewMode = ref('md')
 const md = new MarkdownIt({ html: true, linkify: true, breaks: true }).enable('table')
 
 const renderedHtml = computed(() => props.result ? md.render(props.result) : '')

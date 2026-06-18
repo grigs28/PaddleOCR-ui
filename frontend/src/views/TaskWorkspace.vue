@@ -6,7 +6,9 @@
         <UploadArea />
       </div>
       <div style="flex: 1; overflow: auto; padding: 16px;">
-        <FilePreview :preview="taskStore.selectedPreview" :task-id="taskStore.selectedTaskId" />
+        <!-- PP-OCRv6：可视化增强预览；其他引擎：原始文件预览 -->
+        <PPOCRPreview v-if="taskStore.selectedPpocrData" :ocrData="taskStore.selectedPpocrData" />
+        <FilePreview v-else :preview="taskStore.selectedPreview" :task-id="taskStore.selectedTaskId" />
       </div>
     </div>
     <!-- 右列 -->
@@ -15,7 +17,7 @@
         <TaskQueue />
       </div>
       <div style="flex: 1; overflow: auto; padding: 16px;">
-        <MarkdownPreview :result="taskStore.selectedResult" :result-json="taskStore.selectedResultJson" :task-id="taskStore.selectedTaskId" :ppocr-data="taskStore.selectedPpocrData" />
+        <MarkdownPreview :result="taskStore.selectedResult" :result-json="taskStore.selectedResultJson" :task-id="taskStore.selectedTaskId" />
       </div>
     </div>
   </div>
@@ -27,6 +29,7 @@ import { useTaskStore } from '../stores/task'
 import { useWebSocket } from '../composables/useWebSocket'
 import UploadArea from '../components/UploadArea.vue'
 import FilePreview from '../components/FilePreview.vue'
+import PPOCRPreview from '../components/PPOCRPreview.vue'
 import TaskQueue from '../components/TaskQueue.vue'
 import MarkdownPreview from '../components/MarkdownPreview.vue'
 
