@@ -336,11 +336,15 @@ class TaskEngine:
                     # 保存结果
                     result_dir = get_result_path(str(task_id))
                     md_text = ocr_result["markdown"]
-                    # 清理 VL 返回的 <table border=1> — 去掉 3D 凸起效果，让前端 CSS 接管
-                    md_text = re.sub(r'<table\s+border\s*=\s*["\']?1["\']?', '<table', md_text)
                     md_path = os.path.join(result_dir, "result.md")
                     with open(md_path, "w", encoding="utf-8") as f:
                         f.write(md_text)
+
+                    # 保存原始 OCR JSON（供下载/审计）
+                    raw_data = ocr_result.get("_raw")
+                    if raw_data:
+                        with open(os.path.join(result_dir, "result.raw.json"), "w", encoding="utf-8") as f:
+                            json.dump(raw_data, f, ensure_ascii=False)
 
                     # 保存 OCR 提取的图片
                     ocr_images = ocr_result.get("images", {})
@@ -545,6 +549,12 @@ class TaskEngine:
             md_text = ocr_result["markdown"]
             with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
                 f.write(md_text)
+
+            # 保存原始 OCR JSON（供下载/审计）
+            raw_data_val = ocr_result.get("_raw")
+            if raw_data_val:
+                with open(os.path.join(result_dir, "result.raw.json"), "w", encoding="utf-8") as f:
+                    json.dump(raw_data_val, f, ensure_ascii=False)
 
             # PP-OCRv6 保存原始坐标数据（供前端可视化文字层渲染）
             if engine == "ppocrv6" and "ocr_raw" in ocr_result:

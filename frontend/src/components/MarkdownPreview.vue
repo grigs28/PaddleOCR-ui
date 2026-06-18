@@ -77,6 +77,7 @@ const handleDownload = (format) => {
   width: 100%;
   border-collapse: collapse;
   border: none;
+  border-style: solid !important;
   margin: 12px 0;
   font-size: 13px;
   table-layout: auto;

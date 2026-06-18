@@ -115,7 +115,10 @@ class OCRClient:
         return self._parse_response(data)
 
     def _parse_response(self, data: dict) -> dict:
-        """解析 HPS 响应，提取 markdown、结构化 JSON、图片和页数"""
+        """解析 HPS 响应，提取 markdown、结构化 JSON、图片和页数。
+
+        _raw 字段保留原始 JSON（供 audit/debug/原始下载）。
+        """
         error_code = data.get("errorCode", -1)
         if error_code != 0:
             raise Exception(f"OCR 处理失败: {data.get('errorMsg', '未知错误')}")
@@ -174,6 +177,7 @@ class OCRClient:
             "pages": num_pages,
             "structured": structured_pages,
             "images": images,
+            "_raw": data,      # HPS /layout-parsing 原始 JSON（供下载/审计）
         }
 
     async def recognize_ppocrv6(self, file_path: str, is_pdf: bool) -> dict:
@@ -215,6 +219,7 @@ class OCRClient:
             "pages": num_pages,
             "structured": [],
             "images": {},
+            "_raw": data,       # PaddleX /ocr 原始 JSON（供下载/审计）
             "ocr_raw": [{
                 "dt_polys": page.get("prunedResult", {}).get("dt_polys", []),
                 "rec_texts": page.get("prunedResult", {}).get("rec_texts", []),
