@@ -219,11 +219,24 @@ async def get_task(task_id: int, request: Request):
 
         # 读取结果
         result_text = ""
+        result_json_text = ""
         if task.status == "completed" and task.result_path:
             md_path = os.path.join(task.result_path, "result.md")
             if os.path.exists(md_path):
                 with open(md_path, "r", encoding="utf-8") as f:
                     result_text = f.read()
+            json_path = os.path.join(task.result_path, "result.json")
+            if os.path.exists(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    result_json_text = f.read()
+
+        # PP-OCRv6 坐标数据（供前端可视化文字层渲染）
+        ppocr_data = None
+        if task.engine == "ppocrv6" and task.status == "completed" and task.result_path:
+            json_path = os.path.join(task.result_path, "ppocrv6_data.json")
+            if os.path.exists(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    ppocr_data = json.loads(f.read())
 
         return {
             "task": {
@@ -233,6 +246,7 @@ async def get_task(task_id: int, request: Request):
                 "input_filename": task.input_filename,
                 "input_file_size": task.input_file_size,
                 "output_formats": task.output_formats,
+                "engine": task.engine,
                 "progress": task.progress,
                 "page_current": task.page_current,
                 "page_total": task.page_total,
@@ -243,6 +257,8 @@ async def get_task(task_id: int, request: Request):
                 "processing_time": task.processing_time,
             },
             "result": result_text,
+            "result_json": result_json_text,   # JSON 格式识别结果
+            "ppocr_data": ppocr_data,         # PP-OCRv6 可视化坐标数据（仅 ppocrv6 引擎有值）
         }
 
 

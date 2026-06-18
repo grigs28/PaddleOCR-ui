@@ -546,6 +546,11 @@ class TaskEngine:
             with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
                 f.write(md_text)
 
+            # PP-OCRv6 保存原始坐标数据（供前端可视化文字层渲染）
+            if engine == "ppocrv6" and "ocr_raw" in ocr_result:
+                with open(os.path.join(result_dir, "ppocrv6_data.json"), "w", encoding="utf-8") as f:
+                    json.dump(ocr_result["ocr_raw"], f, ensure_ascii=False, indent=2)
+
             # 多格式输出（txt/json/docx），复用 ExportService
             try:
                 async with async_session() as s:

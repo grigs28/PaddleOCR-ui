@@ -26,6 +26,8 @@ export const useTaskStore = defineStore('task', {
     activeTasks: [],     // 所有任务（含已完成，不清空）
     selectedTaskId: null,
     selectedResult: '',
+    selectedResultJson: '',
+    selectedPpocrData: null,  // PP-OCRv6 可视化坐标数据
     selectedPreview: null,  // { url, type: 'pdf'|'image' }
   }),
   getters: {
@@ -45,11 +47,14 @@ export const useTaskStore = defineStore('task', {
       if (!taskId) {
         this.selectedResult = ''
         this.selectedPreview = null
+        this.selectedPpocrData = null
         return
       }
       try {
         const { data } = await axios.get(`/api/v1/tasks/${taskId}`)
+        this.selectedPpocrData = data.ppocr_data || null
         this.selectedResult = data.result || ''
+        this.selectedResultJson = data.result_json || ''
         // 构建原文件预览 URL
         const task = data.task || data
         if (task.input_filename) {

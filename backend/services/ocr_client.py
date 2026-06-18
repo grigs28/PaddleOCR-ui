@@ -215,8 +215,18 @@ class OCRClient:
             "pages": num_pages,
             "structured": [],
             "images": {},
+            "ocr_raw": [{
+                "dt_polys": page.get("prunedResult", {}).get("dt_polys", []),
+                "rec_texts": page.get("prunedResult", {}).get("rec_texts", []),
+                "rec_scores": page.get("prunedResult", {}).get("rec_scores", []),
+                "rec_polys": page.get("prunedResult", {}).get("rec_polys", []),
+                "ocrImage": page.get("ocrImage") or page.get("inputImage", ""),
+                "width": page.get("prunedResult", {}).get("width") or \
+                         data.get("result", {}).get("dataInfo", {}).get("pages", [{}])[0].get("width", 0),
+                "height": page.get("prunedResult", {}).get("height") or \
+                          data.get("result", {}).get("dataInfo", {}).get("pages", [{}])[0].get("height", 0),
+            } for page in ocr_results],
         }
-
     async def health_check(self) -> bool:
         """检查 OCR 服务健康状态"""
         try:

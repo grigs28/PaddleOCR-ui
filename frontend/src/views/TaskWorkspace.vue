@@ -15,7 +15,7 @@
         <TaskQueue />
       </div>
       <div style="flex: 1; overflow: auto; padding: 16px;">
-        <MarkdownPreview :result="taskStore.selectedResult" :task-id="taskStore.selectedTaskId" />
+        <MarkdownPreview :result="taskStore.selectedResult" :result-json="taskStore.selectedResultJson" :task-id="taskStore.selectedTaskId" :ppocr-data="taskStore.selectedPpocrData" />
       </div>
     </div>
   </div>
