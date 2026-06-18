@@ -19,7 +19,7 @@ export const useUploadStore = defineStore('upload', {
     mergePdf: false,
     singlePagePdf: true,  // DWG 默认单页 PDF
     highPrecision: true,  // 高精度模式（CAD 图纸/密集小字表格），maxPixels 提升至 ~10MP
-    engine: 'vl16',  // OCR 引擎：vl16(PaddleOCR-VL-1.6) / ppocrv6(PP-OCRv6) / mineru(MinerU)
+    engine: 'mineru',  // OCR 引擎：mineru(MinerU 默认) / vl16(PaddleOCR-VL-1.6) / ppocrv6(PP-OCRv6)
   }),
   getters: {
     pendingFiles: (state) => state.files.filter(f => f.status === 'pending'),

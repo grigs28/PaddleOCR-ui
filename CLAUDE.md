@@ -68,10 +68,10 @@ bash start.sh
 
 **高精度模式** (`high_precision`)：任务级开关，前端默认开启。开启时 `maxPixels` 从 1.6MP 提升至 ~10MP（`ocr_vlm_max_pixels_high` / `ocr_vlm_table_max_pixels_high`），适用于 AutoCAD 图纸、密集小字表格（A1 图纸 8pt 字在 1.6MP 下仅 5px 不可读）。耗时约 +50%。链路：前端开关 → `ocr_router.create_task(high_precision)` → `Task.high_precision` → `task_engine` 传给 `ocr_client.recognize_pdf/image(high_precision=)` → 切换 `maxPixels`。仅对 VL-1.6 引擎生效。
 
-**引擎选择** (`engine`)：任务级开关，前端引擎下拉，默认 `vl16`。三引擎路由：
-- `vl16`（PaddleOCR-VL-1.6，默认）→ `ocr_client` 现有流程，受 `high_precision` 影响
-- `ppocrv6`（PP-OCRv6）→ `ocr_client.recognize_ppocrv6()`，POST `ppocrv6_service_url`(0.71:5561)/ocr，零幻觉文字行
-- `mineru`（MinerU）→ `mineru_client.process_mineru()`，ACADxPDF 式异步三步（队列保障→提交→轮询 path→下载 query ZIP→解压全保留），服务 `mineru_service_url`(0.71:5555)
+**引擎选择** (`engine`)：任务级开关，前端引擎下拉，默认 `mineru`。三引擎路由：
+- `mineru`（MinerU，默认）→ `mineru_client.process_mineru()`，ACADxPDF 式异步三步
+- `vl16`（PaddleOCR-VL-1.6）→ `ocr_client` 现有流程，受 `high_precision` 影响
+- `ppocrv6`（PP-OCRv6）→ `ocr_client.recognize_ppocrv6()`，零幻觉文字行
 
 非 VL 引擎在 `task_engine._process_engine_task` 独立处理（Office/CAD 先转 PDF），不走 VL 流程。MinerU 结果（md/layout.pdf/origin.pdf/json/images）全量解压到 `result_path`。
 

@@ -29,4 +29,4 @@ class Task(Base):
     deleted: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0=正常, 1=用户软删, 2=管理员硬删
     merge_pdf: Mapped[int] = mapped_column(SmallInteger, default=0)  # DWG→PDF 多页合并
     high_precision: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1=高精度(10MP) 0=标准(1.6MP)
-    engine: Mapped[str] = mapped_column(String(20), default="vl16")  # vl16/ppocrv6/mineru
+    engine: Mapped[str] = mapped_column(String(20), default="mineru")  # mineru/vl16/ppocrv6

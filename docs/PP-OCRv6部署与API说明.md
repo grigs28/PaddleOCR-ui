@@ -9,18 +9,59 @@
 
 ## 一、概述
 
-PP-OCRv6 是 PaddleOCR 3.x 的传统 OCR 流水线（检测器 + 识别器），与 PaddleOCR-VL-1.6（VLM）互补：
+PP-OCRv6 是 PaddleOCR 3.x 的传统 OCR 流水线（检测器 + 识别器），与 PaddleOCR-VL-1.6（VLM）、MinerU（VLM）互补：
 
-| | PaddleOCR-VL-1.6 | PP-OCRv6 |
-|---|---|---|
-| 架构 | VLM（0.9B）端到端 | 检测 + 识别流水线 |
-| 输出 | 结构化 Markdown/JSON（表格、标题、公式） | 文字行 + 坐标 + 置信度 |
-| 显存 | 20GB+ | **几百 MB** |
-| 速度 | 7-15s/页 | 2-3s/图（已加载） |
-| 幻觉 | 有（可能脑补） | **零幻觉（置信度 0.99+）** |
-| 适用 | 文档结构化解析 | 纯文字提取、精确坐标、低延迟 |
+| | PaddleOCR-VL-1.6 (vl16) | PP-OCRv6 (ppocrv6) | MinerU (mineru) |
+|---|---|---|---|
+| 架构 | VLM（0.9B）端到端 | 检测 + 识别流水线 | VLM（vlm-engine）端到端 |
+| 输出 | 结构化 Markdown/JSON（表格、标题、公式） | 文字行 + 坐标 + 置信度 | md + layout.pdf + origin.pdf + json + images |
+| 显存 | 20GB+ | **850MB**（GPU）/ 0（CPU） | VLM 级别 |
+| 速度 | 7-15s/页 | GPU 0.3s / CPU 2s/图 | 15-75s/PDF |
+| 幻觉 | 有（可能脑补） | **零幻觉（置信度 0.99+）** | 有（VLM 通病） |
+| 适用 | 文档结构化解析（CAD 表格） | 纯文字精确提取、合规核查 | 文档解析（vl 竞品），结果全量保留 |
+| 服务地址 | 192.168.0.70:5564 | **192.168.0.71:5561** | 192.168.0.71:5555 |
 
-本服务定位为**零幻觉文字提取引擎**，作为 VL-1.6 的补充（非替代）。CAD 图纸表格结构化仍走 VL-1.6。
+### 引擎选择（本程序 `engine` 参数）
+
+本程序提交任务时通过 `engine` 参数选择引擎：
+
+| 参数值 | 引擎 | 说明 |
+|--------|------|------|
+| `vl16` | PaddleOCR-VL-1.6 | **默认值**，文档结构化解析，受 `high_precision` 影响 |
+| `ppocrv6` | PP-OCRv6 | 零幻觉文字识别，`high_precision` 对其无影响 |
+| `mineru` | MinerU | VLM 文档解析，结果 ZIP 全量保留到 `result_path` |
+| **空 / 不传** | **vl16** | **向下兼容**——前版本没有 `engine` 参数的调用行为不变 |
+
+**兼容前版本调用**：
+
+```bash
+# 前版本调用（无 engine 参数）— 仍然有效，默认用 VL-1.6
+curl -X POST http://host:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@doc.pdf" \
+  -F 'output_formats=["markdown"]'
+
+# 新版调用（选 PP-OCRv6）
+curl -X POST http://host:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@doc.pdf" \
+  -F "engine=ppocrv6" \
+  -F 'output_formats=["markdown"]'
+
+# 新版调用（选 MinerU）
+curl -X POST http://host:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@doc.pdf" \
+  -F "engine=mineru" \
+  -F 'output_formats=["markdown"]'
+```
+
+**引擎路由逻辑**（`task_engine.py`）：
+- `engine` 为空或不传 → 默认 `vl16`（PaddleOCR-VL-1.6），走现有流程
+- `vl16` → 现有 OCR 流水线，受 `high_precision` 影响
+- `ppocrv6` / `mineru` → `_process_engine_task` 独立流程（Office/CAD 先转 PDF），不走 VL 逻辑
+
+**`high_precision` 的影响范围**：仅 `vl16` 引擎生效（切换 `maxPixels` 1.6MP↔10MP）；`ppocrv6` 和 `mineru` 引擎忽略此参数。
 
 ---
 
@@ -122,7 +163,7 @@ ss -tln | grep 5561   # 确认监听
 
 ---
 
-## 四、踩坑记录（部署时遇到的 4 个问题）
+## 四、踩坑记录（部署时遇到的问题）
 
 | 问题 | 现象 | 解决 |
 |------|------|------|
@@ -130,6 +171,41 @@ ss -tln | grep 5561   # 确认监听
 | 镜像 base 无 python | nvidia/cuda:base 镜像需 apt 装 python，但 apt 失败 | 直接用 paddle 官方镜像（自带 python 3.10） |
 | serving 插件缺失 | `The serving plugin is not available` | `paddlex --install serving` |
 | pipeline 名错误 | `pipeline (PP-OCRv6) does not exist` | 用 `--pipeline OCR`（PP-OCRv6 是其默认模型） |
+| **GPU 未启用（CPU 回退）** | paddle 日志 `CUDA device not set properly, CPU by default`；`cuInit` 返回 **803 SYSTEM_DRIVER_MISMATCH**；`device_count=0` | 见下「GPU 配置（关键）」 |
+
+### GPU 配置（关键）——否则默认 CPU 推理
+
+paddle 3.2.2 CUDA 13 镜像自带 `/usr/local/cuda-13.0/compat/libcuda.so.1`（forward-compat 库），与宿主机内核驱动冲突，导致 `cuInit` 返回 803，paddle 回退 CPU（表现为推理极慢、CPU 满载、GPU 占用 0）。
+
+**完整修复**（必须三步都做）：
+
+1. **nvidia runtime**（非默认 runc）：`--runtime=nvidia --gpus all`
+2. **环境变量**：`-e NVIDIA_VISIBLE_DEVICES=all -e CUDA_VISIBLE_DEVICES=0`
+3. **移除冲突的 compat 库**：
+   ```bash
+   docker exec paddleocr-gpu mv /usr/local/cuda-13.0/compat/libcuda.so.1 /tmp/
+   docker exec paddleocr-gpu ldconfig
+   ```
+4. 验证：`cuInit` 返回 0、`paddle.device.cuda.device_count()` ≥ 1
+5. **固化**：`docker commit paddleocr-gpu paddleocr-v6:gpu`，重启用该镜像
+
+修复前后对比（同一张图）：
+
+| | CPU（修复前） | GPU（修复后） |
+|---|---|---|
+| 二次推理耗时 | ~数秒~75s（A1） | **0.33s** |
+| GPU 显存 | 0 | ~850MB |
+| CPU 占用 | 993%（10核） | 极低 |
+
+正确的启动命令（固化后）：
+```bash
+docker run -d --name paddleocr-gpu --restart unless-stopped \
+  --runtime=nvidia --gpus all \
+  -e NVIDIA_VISIBLE_DEVICES=all -e CUDA_VISIBLE_DEVICES=0 \
+  --network host -v /opt/ppocrv6/data:/workspace \
+  paddleocr-v6:gpu \
+  paddlex --serve --pipeline OCR --host 0.0.0.0 --port 5561
+```
 
 ---
 
@@ -308,11 +384,98 @@ docker run -d --name paddleocr-gpu --restart unless-stopped \
 
 ## 八、接入本程序（PaddleOCR-ui）说明
 
-若要在本程序 UI 提供 PP-OCRv6 选项（高精度开关旁的引擎下拉）：
+**已实装**（2026-06-17）：三引擎全链路已贯通，前端引擎下拉 + 后端路由 + 数据库迁移，0.19（测试）和 0.8（生产）均已部署。
 
-1. **后端 `ocr_client.py`**：新增 `recognize_ppocrv6(file_path)` 方法，POST 到 `http://192.168.0.71:5561/ocr`，解析 `result.ocrResults[].prunedResult.rec_texts` 拼成文本。
-2. **`task_engine.py`**：按 `task.engine` 字段路由（`vl16` / `ppocrv6`）。
-3. **前端**：引擎下拉选项。
-4. **注意输出差异**：PP-OCRv6 输出纯文本行 + 坐标，**不生成表格 Markdown**；CAD 评分表等结构化场景仍用 VL-1.6，PP-OCRv6 适合纯文字 PDF/图片快速提取。
+### 后端路由架构
 
-> 当前（本文档撰写时）本程序代码未接入 PP-OCRv6，服务已就绪待调用。
+```
+task_engine._process_task
+├── engine=vl16（默认）      → 现有 VL OCR 流程（ocr_client.recognize_image/pdf）
+├── engine=ppocrv6             → _process_engine_task → ocr_client.recognize_ppocrv6()
+│                                 POST 192.168.0.71:5561/ocr  → 文字行+坐标
+└── engine=mineru              → _process_engine_task → mineru_client.process_mineru()
+                                  ACADxPDF式异步三步 → ZIP 全量保留
+```
+
+### 关键文件
+
+| 层 | 文件 | 职能 |
+|---|------|------|
+| 前端 | `UploadArea.vue` / `upload.js` | 引擎下拉 + `engine` 状态 + `highPrecision` 开关 |
+| 后端路由 | `task_engine.py` | `engine` 参数分流，非 VL 引擎走 `_process_engine_task` |
+| VL-1.6 客户端 | `ocr_client.py` | 现有 `recognize_image/pdf` + 新增 `recognize_ppocrv6` |
+| MinerU 客户端 | `mineru_client.py` | 新建，异步三步（队列保障→提交→轮询 path→下载 query ZIP） |
+| 配置 | `config.py` | `ppocrv6_service_url` / `mineru_service_url` / `acad_service_url` |
+| 模型 | `task.py` | `engine` 字段（默认 `vl16`）+ `high_precision` 字段 |
+
+### 注意输出差异
+
+- **VL-1.6**：结构化 Markdown/HTML（含表格、标题层级），可能有幻觉
+- **PP-OCRv6**：纯文字行 + 坐标（`rec_texts` + `dt_polys`），**不生成表格 Markdown**，零幻觉
+- **MinerU**：ZIP 全量保留（md + layout.pdf + origin.pdf + json + images），前端读取 `result.md`
+
+---
+
+## 九、ACADxPDF API 调用说明
+
+ACADxPDF 是 CAD 图纸（DWG/DXF）转换服务，将 CAD 图纸转为 PDF + DXF 文件，供 OCR 或 DXF 文字提取使用。
+
+**服务地址**：`ACAD_SERVICE_URL`（默认 `http://192.168.0.5:5557`）
+
+**认证**：请求头 `x-api-key: ACAD_SERVICE_APIKEY`
+
+### API 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/health` | 健康检查 |
+| `POST` | `/convert` | 提交 DWG/DXF → PDF + DXF（异步） |
+| `POST` | `/convert-pdf` | 提交 PDF → DWG（异步） |
+| `GET` | `/task/{task_id}` | 查询任务状态（轮询用） |
+| `GET` | `/pdf-task/{task_id}` | 查询 PDF→DWG 任务状态 |
+| `GET` | `/download/{task_id}` | 下载 DWG→PDF 结果 ZIP |
+| `GET` | `/download-pdf-zip/{task_id}` | 下载 PDF→DWG 结果 ZIP |
+
+### 异步三步模式
+
+本程序通过 `doc_converter.py` 调用 ACADxPDF，采用异步三步模式：
+
+```
+1. POST /convert          → 提交文件 → 返回 task_id
+2. GET  /task/{task_id}   → 轮询等待 status=done（5s 间隔）
+3. GET  /download/{task_id} → 下载 ZIP → 解压分类（pdf 文件 / dxf 文件）
+```
+
+**本程序对应函数**：
+
+| 步骤 | 函数 | 位置 |
+|------|------|------|
+| 通用请求（带认证） | `_acad_request(client, method, path)` | `doc_converter.py:73` |
+| 轮询 | `_poll_acad_task(client, task_path, task_id)` | `doc_converter.py:84` |
+| 下载解压 | `_download_acad_result(task_id, download_path, output_dir)` | `doc_converter.py:121` |
+| DWG 转 PDF 入口 | `_convert_dwg_via_acad(input_path, output_dir, merge)` | `doc_converter.py:152` |
+| PDF 转 DWG 入口 | `convert_pdf_to_dwg(input_path, output_dir)` | `doc_converter.py:258` |
+
+### 任务状态
+
+| 状态 | 说明 |
+|------|------|
+| `done` | 转换成功（可能部分文件失败，有 `files[].success` 字段） |
+| `failed` | 全部文件转换失败 |
+| 其他 | 处理中，继续轮询 |
+
+### 降级方案
+
+ACADxPDF 不可用时（服务无响应/返回非 HTTP 200），自动降级为**本地 `cad2x` 二进制**（`bin/cad2x`，3.5MB，被 `.gitignore` 排除），通过 `_convert_dwg_via_cad2x()` 调用。cad2x 功能有限（单页 PDF，无 DXF 输出），但能兜底。
+
+### 本程序 CAD 处理流水线
+
+```
+DWG/DXF 文件
+    ├── ACADxPDF（主方案）
+    │     ├── POST /convert → PDF + DXF
+    │     ├── DXF → extract_dxf_text()（ezdxf，100%准确，零幻觉）
+    │     └── PDF → OCR（PaddleOCR-VL / PP-OCRv6 / MinerU，按 engine 选择）
+    └── cad2x（降级）
+          └── DWG → PDF → OCR
+```

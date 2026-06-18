@@ -72,22 +72,49 @@ X-API-Key: ak_xxxxx
 | `file` | File | 是 | 待识别文件 |
 | `task_type` | string | 否 | 任务类型，固定 `ocr` |
 | `output_formats` | string | 否 | JSON 数组，输出格式。默认 `["markdown"]` |
+| `engine` | string | 否 | OCR 引擎。`mineru`（MinerU，默认）/ `vl16`（PaddleOCR-VL-1.6）/ `ppocrv6`（PP-OCRv6）。不传或为空时默认 `mineru`，**向下兼容**——前版本调用的任务将继续正常处理
+| `high_precision` | string | 否 | 高精度模式，默认 `"true"`（10MP VLM 分辨率）。仅 `vl16` 引擎生效，`ppocrv6`/`mineru` 忽略此参数 |
+| `merge_pdf` | string | 否 | DWG→PDF 多页合并，默认 `"false"` |
 
 **支持的文件类型：** pdf, jpg, jpeg, png, bmp, tiff, tif, webp, doc, docx, odt, rtf, xls, xlsx, ods, csv, ppt, pptx, odp, txt, html, htm, dwg, dxf
 
-**支持的输出格式：** markdown, json, txt, docx
+**支持的输出格式：** markdown, json, txt, docx, dwg（DWG 仅对 PDF 文件生效，与其他格式互斥）
 
 **文件大小限制：** 1GB
 
 **请求示例：**
 
 ```bash
+# 默认引擎（VL-1.6，高精度开启）
 curl -X POST \
   -H "X-API-Key: ak_xxxxx" \
   -F "file=@/path/to/document.pdf" \
   -F 'output_formats=["markdown","json"]' \
   http://192.168.0.8:5553/api/v1/tasks
-```
+
+# 指定 PP-OCRv6 引擎（零幻觉文字识别）
+curl -X POST \
+  -H "X-API-Key: ak_xxxxx" \
+  -F "file=@/path/to/document.pdf" \
+  -F "engine=ppocrv6" \
+  -F 'output_formats=["markdown"]' \
+  http://192.168.0.8:5553/api/v1/tasks
+
+# 指定 MinerU 引擎（VLM 文档解析）
+curl -X POST \
+  -H "X-API-Key: ak_xxxxx" \
+  -F "file=@/path/to/document.pdf" \
+  -F "engine=mineru" \
+  -F 'output_formats=["markdown"]' \
+  http://192.168.0.8:5553/api/v1/tasks
+
+# 关闭高精度（只对 vl16 引擎有效）
+curl -X POST \
+  -H "X-API-Key: ak_xxxxx" \
+  -F "file=@/path/to/document.pdf" \
+  -F "high_precision=false" \
+  -F 'output_formats=["markdown"]' \
+  http://192.168.0.8:5553/api/v1/tasks
 
 **Python 示例：**
 
@@ -97,12 +124,29 @@ import requests
 url = "http://192.168.0.8:5553/api/v1/tasks"
 headers = {"X-API-Key": "ak_xxxxx"}
 
+# 默认引擎 VL-1.6
 with open("document.pdf", "rb") as f:
     resp = requests.post(url, headers=headers, files={
         "file": f,
     }, data={
         "task_type": "ocr",
         "output_formats": '["markdown", "json"]',
+    })
+    print(resp.json())
+
+# PP-OCRv6（零幻觉）
+with open("contract.pdf", "rb") as f:
+    resp = requests.post(url, headers=headers, files={"file": f}, data={
+        "engine": "ppocrv6",
+        "output_formats": '["markdown"]',
+    })
+    print(resp.json())
+
+# MinerU（全量保留）
+with open("report.pdf", "rb") as f:
+    resp = requests.post(url, headers=headers, files={"file": f}, data={
+        "engine": "mineru",
+        "output_formats": '["markdown"]',
     })
     print(resp.json())
 ```
@@ -114,6 +158,21 @@ with open("document.pdf", "rb") as f:
   "message": "任务已提交"
 }
 ```
+
+### 2.1.1 引擎选择
+
+`engine` 参数可选，不传时默认 `mineru`（向下兼容，前版本调用无此参数时也会用 MinerU）。三引擎对比：
+
+| 引擎 | engine 值 | 定位 | 特点 |
+|------|-----------|------|------|
+| MinerU | `mineru`（默认） | VLM 文档解析 | ZIP 全量保留（md + layout.pdf + origin.pdf + json + images） |
+| PaddleOCR-VL-1.6 | `vl16` | VLM 文档解析 | 结构化 Markdown/JSON（表格、标题、公式），可能有幻觉，受 `high_precision` 影响 |
+| PP-OCRv6 | `ppocrv6` | 零幻觉文字识别 | 纯文字行 + 坐标，置信度 0.99+，不结构化表格，`high_precision` 无影响 |
+
+**选择建议**：
+- 全量保留（含 layout.pdf 对照）→ `mineru`（默认，结果 ZIP 全量保留）
+- CAD 图纸评分表 / 设计说明 → `vl16`（需要表格结构化）
+- 合规核查 / 精确文字匹配（"阳角"不能错成"阻尼角"）→ `ppocrv6`（零幻觉）
 
 ### 2.2 查询任务列表
 
@@ -143,6 +202,7 @@ X-API-Key: ak_xxxxx
       "created_at": "2026-04-19T13:20:15.305499",
       "completed_at": "2026-04-19T21:20:44.615606",
       "output_formats": "[\"markdown\", \"json\"]",
+      "engine": "vl16",
       "processing_time": 25
     }
   ]
@@ -177,6 +237,7 @@ X-API-Key: ak_xxxxx
     "input_filename": "document.pdf",
     "input_file_size": 6520129,
     "output_formats": "[\"markdown\", \"json\"]",
+    "engine": "vl16",
     "progress": 100,
     "page_current": 83,
     "page_total": 83,
@@ -189,6 +250,7 @@ X-API-Key: ak_xxxxx
   "result": "# 文档标题\n\n识别出的 Markdown 内容..."
 }
 ```
+>`engine` 取值：`vl16`（PaddleOCR-VL-1.6）、`ppocrv6`（PP-OCRv6）、`mineru`（MinerU）
 
 ### 2.4 取消任务
 
@@ -234,6 +296,7 @@ X-API-Key: ak_xxxxx
       "status": "completed",
       "progress": 100,
       "output_formats": "[\"markdown\", \"json\"]",
+      "engine": "vl16",
       "processing_time": 25,
       "deleted": 0,
       "created_at": "2026-04-19T13:20:15.305499",
