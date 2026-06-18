@@ -1,24 +1,31 @@
 <template>
   <div style="height: 100%; display: flex; flex-direction: column;">
-    <!-- 工具栏：缩放控件 -->
+    <!-- 工具栏 -->
     <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;" v-if="pages.length">
       <span style="font-size:12px; color:#909399;">{{ currentPage }}/{{ pages.length }} 页</span>
-      <el-slider v-model="zoom" :min="20" :max="200" style="width: 150px;" size="small" />
+      <el-slider v-model="zoom" :min="20" :max="200" style="width: 120px;" size="small" />
       <span style="font-size:12px; color:#909399;">{{ zoom }}%</span>
     </div>
 
-    <!-- 可视化面板 -->
-    <div style="flex:1; overflow:auto; background:#f0f0f0; border-radius:4px; display:flex; justify-content:center;"
-         ref="scrollContainer">
-      <div v-for="(page, pi) in pages" :key="pi" v-show="pi + 1 === currentPage"
-           style="position:relative; display:inline-block; box-shadow: 0 2px 8px rgba(0,0,0,.15);"
-           :style="pageStyle(page)">
-        <!-- 原图 -->
-        <img :src="'data:image/jpeg;base64,' + page.image" style="display:block; width:100%; height:auto;" />
-        <!-- 文字层（绝对定位） -->
-        <div style="position:absolute; top:0; left:0; width:100%; height:100%;">
+    <!-- 左右并排双面板：左原图 | 右文字层 -->
+    <div style="flex:1; display:flex; gap:4px; overflow:hidden;"
+         @scroll.passive="syncScroll">
+      <!-- 左：纯净原图 -->
+      <div ref="imgPanel" style="flex:1; overflow:auto; display:flex; justify-content:center; background:#f5f5f5; border-radius:4px;">
+        <div v-for="(page, pi) in pages" :key="'img'+pi" v-show="pi + 1 === currentPage"
+             :style="panelStyle(page)">
+          <img :src="'data:image/jpeg;base64,' + page.image"
+               style="display:block; width:100%; height:auto;" />
+        </div>
+      </div>
+
+      <!-- 右：文字层（白底，按坐标定位，文字始终可见） -->
+      <div ref="textPanel" style="flex:1; overflow:auto; display:flex; justify-content:center; background:#fff; border-radius:4px;">
+        <div v-for="(page, pi) in pages" :key="'txt'+pi" v-show="pi + 1 === currentPage"
+             style="position:relative;"
+             :style="panelStyle(page)">
           <span v-for="(item, idx) in page.lines" :key="idx"
-                :style="lineStyle(item)"
+                :style="lineStyle(page, item)"
                 :title="item.text + ' (' + Math.round(item.score * 100) + '%)'">
             {{ item.text }}
           </span>
@@ -32,13 +39,23 @@
 import { ref, computed } from 'vue'
 
 const props = defineProps({
-  ocrData: { type: Array, default: () => [] }  // [{ dt_polys, rec_texts, rec_scores, ocrImage, width, height }]
+  ocrData: { type: Array, default: () => [] }
 })
 
 const zoom = ref(100)
 const currentPage = ref(1)
+const imgPanel = ref(null)
+const textPanel = ref(null)
 
-// 解析数据：每页转为 { image, lines: [{text, poly, score, left, top, w, h}] }
+// 双向滚动同步
+function syncScroll(e) {
+  const src = e.target
+  const dst = src === imgPanel.value ? textPanel.value : imgPanel.value
+  if (!dst) return
+  if (src.scrollLeft !== dst.scrollLeft) dst.scrollLeft = src.scrollLeft
+  if (src.scrollTop !== dst.scrollTop) dst.scrollTop = src.scrollTop
+}
+
 const pages = computed(() => {
   return props.ocrData.map(page => {
     const texts = page.rec_texts || []
@@ -66,42 +83,37 @@ const pages = computed(() => {
   }).filter(p => p.image || p.lines.length)
 })
 
-function pageStyle(page) {
+function panelStyle(page) {
   const s = zoom.value / 100
-  return { width: (page.width * s) + 'px', height: 'auto' }
+  return { width: (page.width * s) + 'px', height: 'auto', flexShrink: 0 }
 }
 
-function lineStyle(item) {
-  if (!pages.value.length) return {}
-  const page = pages.value[currentPage.value - 1] || pages.value[0]
+function lineStyle(page, item) {
   const s = zoom.value / 100
-  // 文字框相对于原图的比例，映射到缩放后容器
-  const leftPct = item.left / page.width * 100
-  const topPct = item.top / page.height * 100
-  const wPct = item.w / page.width * 100
-  const hPct = item.h / page.height * 100
-  // 字号 = 文字框高度 * 缩放 * 0.75（中文略小于框高）
-  const fontSize = Math.max(6, item.h * s * 0.75)
+  const fontSize = Math.max(8, item.h * s * 0.72)
   return {
     position: 'absolute',
-    left: leftPct + '%',
-    top: topPct + '%',
-    width: wPct + '%',
-    height: hPct + '%',
+    left: (item.left / page.width * 100) + '%',
+    top: (item.top / page.height * 100) + '%',
+    width: (item.w / page.width * 100) + '%',
+    height: (item.h / page.height * 100) + '%',
     fontSize: fontSize + 'px',
-    lineHeight: item.h * s + 'px',
-    color: 'transparent',
-    background: 'transparent',
-    cursor: 'default',
+    lineHeight: (item.h * s) + 'px',
+    color: '#303133',
     whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'default',
+    transition: 'background .15s',
   }
 }
 </script>
 
 <style scoped>
-/* hover 时显示文字 */
 span:hover {
-  color: inherit !important;
-  background: rgba(255, 255, 200, 0.85) !important;
+  background: rgba(64, 158, 255, 0.12) !important;
+  z-index: 1;
 }
 </style>
