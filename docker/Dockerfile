@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libreoffice-writer-nogui \
     libreoffice-calc-nogui \
+    fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖
