@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
+# 安装中文字体（工程标准：宋体/黑体/楷体/仿宋/微软雅黑）
+COPY .fonts/ /usr/share/fonts/truetype/custom/
+RUN fc-cache -fv
+
 # 安装 Python 依赖
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

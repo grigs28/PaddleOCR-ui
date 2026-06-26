@@ -29,5 +29,8 @@ static/
 # 第三方工具二进制
 bin/
 
+# 工程字体（不上传 git）
+.fonts/
+
 # 测试文件
 .test/
