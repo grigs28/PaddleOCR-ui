@@ -61,6 +61,10 @@ docker run -d -p 5553:5553 \
 - PostgreSQL（或 openGauss-lite）
 - LibreOffice（可选，Office 格式转换需要）
 - Node.js 18+（前端构建）
+- 中文字体（可选，LibreOffice 转换 DOCX 时需要）：
+  - 镜像已内置 `fonts-wqy-microhei`（文泉驿微米黑）
+  - 推荐将工程常用字体放到 `.fonts/` 目录（宋体/黑体/楷体/仿宋/微软雅黑），Dockerfile 自动 COPY
+  - `.fonts/` 不上传 git（已加入 `.gitignore`）
 
 ```bash
 # 安装后端依赖
