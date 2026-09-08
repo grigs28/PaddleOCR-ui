@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     mineru_service_url: str = "http://192.168.0.71:5555"
     mineru_upload_timeout: int = 600   # 提交文件超时（秒），大文件上传较慢
     mineru_poll_timeout: int = 1800    # 轮询任务状态超时（秒）
+    mineru_poll_interval: int = 3      # 轮询间隔（秒）
+    mineru_query_timeout: int = 15     # 单次查询请求超时（秒）
 
     # OOS 统一登录配置
     yz_login_url: str = "http://localhost:5551"

@@ -33,14 +33,17 @@ async def _ensure_queue_running(client: aiohttp.ClientSession, base: str):
 
 async def _poll_task(client: aiohttp.ClientSession, base: str, task_id: str, timeout: int) -> dict:
     """轮询任务状态直到 completed/failed，返回任务数据"""
+    settings = get_settings()
+    interval = settings.mineru_poll_interval
+    query_timeout = aiohttp.ClientTimeout(total=settings.mineru_query_timeout)
     deadline = asyncio.get_event_loop().time() + timeout
     last_progress = -1
     while asyncio.get_event_loop().time() < deadline:
         try:
-            async with client.get(f"{base}/api/task/{task_id}", timeout=aiohttp.ClientTimeout(total=15)) as r:
+            async with client.get(f"{base}/api/task/{task_id}", timeout=query_timeout) as r:
                 if r.status != 200:
                     logger.warning(f"MinerU 轮询非200: {r.status}")
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(interval)
                     continue
                 data = await r.json()
             status = data.get("status")
@@ -56,7 +59,7 @@ async def _poll_task(client: aiohttp.ClientSession, base: str, task_id: str, tim
             if "MinerU 任务失败" in str(e):
                 raise
             logger.warning(f"MinerU 轮询异常: {e}")
-        await asyncio.sleep(5)
+        await asyncio.sleep(interval)
     raise Exception(f"MinerU 轮询超时 ({timeout}s)")
 
 

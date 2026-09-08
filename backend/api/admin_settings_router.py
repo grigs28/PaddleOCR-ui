@@ -17,6 +17,8 @@ EDITABLE_SETTINGS = {
     "acad_task_timeout": {"label": "ACAD 轮询超时（秒）", "type": "int", "min": 60, "max": 7200},
     "mineru_upload_timeout": {"label": "MinerU 上传超时（秒）", "type": "int", "min": 60, "max": 3600},
     "mineru_poll_timeout": {"label": "MinerU 轮询超时（秒）", "type": "int", "min": 300, "max": 7200},
+    "mineru_poll_interval": {"label": "MinerU 轮询间隔（秒）", "type": "int", "min": 1, "max": 60},
+    "mineru_query_timeout": {"label": "MinerU 单次查询超时（秒）", "type": "int", "min": 5, "max": 120},
     # 并发配置
     "image_semaphore_size": {"label": "图片并发数", "type": "int", "min": 1, "max": 20},
     "pdf_semaphore_size": {"label": "PDF 并发数", "type": "int", "min": 1, "max": 20},
