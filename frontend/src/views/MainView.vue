@@ -3,6 +3,9 @@
     <el-header style="background: #fff; border-bottom: 1px solid #e4e7ed; display: flex; align-items: center; justify-content: space-between; padding: 0 20px;">
       <div style="display: flex; align-items: center; gap: 16px;">
         <h2 style="margin: 0; font-size: 18px; color: #303133;">PaddleOCR</h2>
+        <span v-if="versionInfo" style="font-size: 12px; color: #909399; white-space: nowrap;">
+          v{{ versionInfo.ui_version }}<template v-if="versionInfo.engine_version !== '未知'"> · {{ versionInfo.engine_version }}</template>
+        </span>
         <el-tabs v-model="activeTab" style="margin-bottom: -1px;">
           <el-tab-pane label="上传任务" name="workspace" />
           <el-tab-pane label="文件管理" name="files" />
@@ -34,8 +37,12 @@ import AdminPanel from './AdminPanel.vue'
 const userStore = useUserStore()
 const router = useRouter()
 const activeTab = ref('workspace')
+const versionInfo = ref(null)
 
-onMounted(() => { userStore.fetchUser() })
+onMounted(() => {
+  userStore.fetchUser()
+  axios.get('/api/version').then(({ data }) => { versionInfo.value = data }).catch(() => {})
+})
 
 const handleLogout = async () => {
   try {

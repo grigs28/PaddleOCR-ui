@@ -130,6 +130,12 @@ async def health_check():
     return {"status": "ok"}
 
 
+@app.get("/api/version")
+async def get_version():
+    """返回 UI 版本和 PaddleOCR 引擎版本（引擎版本硬编码，以 vlm-server 实际模型为准）"""
+    return {"ui_version": app.version, "engine_version": "PaddleOCR-VL-1.6-0.9B"}
+
+
 # 注册 API 路由
 app.include_router(auth_router)
 app.include_router(ocr_router)
