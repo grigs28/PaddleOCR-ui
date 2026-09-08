@@ -23,6 +23,8 @@ docker build -t paddleocr-ui -f docker/Dockerfile .
 bash start.sh
 ```
 
+**没有测试套件**：仓库不包含单元测试或 lint 配置（`.test/` 目录只是临时试算脚本，非常规测试），验证改动靠手动运行服务。
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -89,7 +91,7 @@ bash start.sh
 | `/api/v1/admin/*` | `backend/api/admin_router.py` | 用户管理 |
 | `/api/v1/admin/*` | `backend/api/admin_settings_router.py` | 在线配置（热生效） |
 | `/api/v1/admin/*` | `backend/api/admin_log_router.py` | 日志查看 |
-| `/ws/progress` | `backend/api/ws_router.py` | WebSocket 进度推送 |
+| `/ws/progress` | `backend/api/ws_router.py` | WebSocket 进度推送（连接管理在 `backend/ws/progress.py` 的 `progress_manager` 单例，task_engine 也直接调用它推送） |
 
 ### 认证流程
 
@@ -124,6 +126,11 @@ bash start.sh
   - `AdminPanel.vue` — 管理面板
 - 路由守卫：非 login 页无 `paddleocr_session` cookie 时跳转登录
 - 全局 axios 拦截器：401 响应自动跳转 `/auth/login`
+- 结果预览组件：`FilePreview.vue` 按引擎分发到 `MarkdownPreview.vue`（markdown 渲染）或 `PPOCRPreview.vue`（PP-OCRv6 文字行可视化）
+
+### 结果导出
+
+`backend/services/export_service.py` 的 `ExportService` 将识别结果 Markdown 导出为 txt/docx（`file_router.py` 的 `/{file_id}/download?format=` 和 `/batch-download` 使用）。docx 导出前会把 `$...$` LaTeX 片段转成 Unicode 上下标/符号（python-docx 不渲染 LaTeX）。
 
 ### 关键外部依赖地址
 

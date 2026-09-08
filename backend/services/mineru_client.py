@@ -31,7 +31,7 @@ async def _ensure_queue_running(client: aiohttp.ClientSession, base: str):
         logger.warning(f"MinerU 队列状态检查失败: {e}")
 
 
-async def _poll_task(client: aiohttp.ClientSession, base: str, task_id: str, timeout: int = 3600) -> dict:
+async def _poll_task(client: aiohttp.ClientSession, base: str, task_id: str, timeout: int) -> dict:
     """轮询任务状态直到 completed/failed，返回任务数据"""
     deadline = asyncio.get_event_loop().time() + timeout
     last_progress = -1
@@ -81,7 +81,7 @@ async def process_mineru(file_path: str, result_dir: str) -> dict:
             async with client.post(
                 f"{base}/api/upload_with_progress",
                 data=data,
-                timeout=aiohttp.ClientTimeout(total=120),
+                timeout=aiohttp.ClientTimeout(total=settings.mineru_upload_timeout),
             ) as resp:
                 if resp.status != 200:
                     raise Exception(f"MinerU 提交失败 {resp.status}: {(await resp.text())[:200]}")
@@ -93,7 +93,7 @@ async def process_mineru(file_path: str, result_dir: str) -> dict:
         logger.info(f"MinerU 任务已提交: {task_id} ({filename})")
 
         # 3. 轮询
-        task_data = await _poll_task(client, base, task_id)
+        task_data = await _poll_task(client, base, task_id, timeout=settings.mineru_poll_timeout)
 
         # 4. 下载 ZIP
         async with client.get(

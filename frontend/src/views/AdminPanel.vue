@@ -91,6 +91,10 @@
                 @click="testConnection('ocr')">
                 测试连接
               </el-button>
+              <el-button v-if="key === 'mineru_service_url'" size="small" :loading="testingMineru"
+                @click="testConnection('mineru')">
+                测试连接
+              </el-button>
               <el-button v-if="key === 'acad_service_url'" size="small" :loading="testingAcad"
                 @click="testConnection('acad')">
                 测试连接
@@ -148,6 +152,7 @@ const settingsData = ref({})
 const savingSettings = ref(false)
 const testingOcr = ref(false)
 const testingAcad = ref(false)
+const testingMineru = ref(false)
 const testResult = ref(null)
 
 const intSettings = computed(() => {
@@ -167,7 +172,7 @@ const strSettings = computed(() => {
 })
 
 const testConnection = async (service) => {
-  const loading = service === 'ocr' ? testingOcr : testingAcad
+  const loading = { ocr: testingOcr, acad: testingAcad, mineru: testingMineru }[service] || testingOcr
   loading.value = true
   testResult.value = null
   try {

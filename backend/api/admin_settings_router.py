@@ -15,6 +15,8 @@ EDITABLE_SETTINGS = {
     "libreoffice_timeout": {"label": "LibreOffice 转换超时（秒）", "type": "int", "min": 60, "max": 7200},
     "ocr_health_timeout": {"label": "健康检查超时（秒）", "type": "int", "min": 1, "max": 60},
     "acad_task_timeout": {"label": "ACAD 轮询超时（秒）", "type": "int", "min": 60, "max": 7200},
+    "mineru_upload_timeout": {"label": "MinerU 上传超时（秒）", "type": "int", "min": 60, "max": 3600},
+    "mineru_poll_timeout": {"label": "MinerU 轮询超时（秒）", "type": "int", "min": 300, "max": 7200},
     # 并发配置
     "image_semaphore_size": {"label": "图片并发数", "type": "int", "min": 1, "max": 20},
     "pdf_semaphore_size": {"label": "PDF 并发数", "type": "int", "min": 1, "max": 20},
@@ -30,6 +32,7 @@ EDITABLE_SETTINGS = {
     "db_password": {"label": "数据库密码", "type": "str"},
     "db_name": {"label": "数据库名称", "type": "str"},
     "ocr_service_url": {"label": "OCR 服务地址", "type": "str"},
+    "mineru_service_url": {"label": "MinerU 服务地址", "type": "str"},
     "acad_service_url": {"label": "DWG→PDF/DXF 服务地址", "type": "str"},
     "acad_service_apikey": {"label": "DWG→PDF/DXF API Key", "type": "str"},
     "yz_login_url": {"label": "SSO 登录地址", "type": "str"},
@@ -156,6 +159,18 @@ async def test_service_connection(request: Request):
                 if resp.status_code == 200:
                     return {"ok": True, "message": f"DWG 转换服务连接正常 ({url})"}
                 return {"ok": False, "message": f"服务返回 {resp.status_code}"}
+        except Exception as e:
+            return {"ok": False, "message": f"连接失败: {e}"}
+
+    elif service == "mineru":
+        url = get_settings().mineru_service_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{url}/api/queue/status")
+                if resp.status_code == 200:
+                    status = resp.json().get("queue_status", "unknown")
+                    return {"ok": True, "message": f"MinerU 服务连接正常 ({url})，队列状态: {status}"}
+                return {"ok": False, "message": f"MinerU 服务返回 {resp.status_code}"}
         except Exception as e:
             return {"ok": False, "message": f"连接失败: {e}"}
 
