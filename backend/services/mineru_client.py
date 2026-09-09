@@ -38,9 +38,18 @@ async def _poll_task(client: aiohttp.ClientSession, base: str, task_id: str, tim
     query_timeout = aiohttp.ClientTimeout(total=settings.mineru_query_timeout)
     deadline = asyncio.get_event_loop().time() + timeout
     last_progress = -1
+    not_found_count = 0  # 连续 404 计数：任务号不存在是永久性错误（服务端重启丢任务）
     while asyncio.get_event_loop().time() < deadline:
         try:
             async with client.get(f"{base}/api/task/{task_id}", timeout=query_timeout) as r:
+                if r.status == 404:
+                    not_found_count += 1
+                    if not_found_count >= 10:
+                        raise Exception("MinerU 服务端任务丢失（服务可能已重启，任务记录不存在）")
+                    logger.warning(f"MinerU 轮询 404（第 {not_found_count} 次）: {task_id}")
+                    await asyncio.sleep(interval)
+                    continue
+                not_found_count = 0
                 if r.status != 200:
                     logger.warning(f"MinerU 轮询非200: {r.status}")
                     await asyncio.sleep(interval)
@@ -56,7 +65,7 @@ async def _poll_task(client: aiohttp.ClientSession, base: str, task_id: str, tim
             if status == "failed":
                 raise Exception(f"MinerU 任务失败: {data.get('error_message') or data.get('message')}")
         except Exception as e:
-            if "MinerU 任务失败" in str(e):
+            if "MinerU 任务失败" in str(e) or "任务丢失" in str(e):
                 raise
             logger.warning(f"MinerU 轮询异常: {e}")
         await asyncio.sleep(interval)

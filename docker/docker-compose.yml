@@ -12,6 +12,7 @@ services:
       - ../.env
     volumes:
       - ./data:/app/data
+      - ../.env:/app/.env   # 管理面板在线配置直接写宿主机 .env，容器重建不丢
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5553/health"]
