@@ -116,17 +116,26 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <h3 style="margin: 0;">系统日志</h3>
           <div style="display: flex; gap: 8px; align-items: center;">
+            <el-radio-group v-model="logLevel" size="small">
+              <el-radio-button value="ALL">全部</el-radio-button>
+              <el-radio-button value="INFO">INFO</el-radio-button>
+              <el-radio-button value="WARNING">WARNING</el-radio-button>
+              <el-radio-button value="ERROR">ERROR</el-radio-button>
+            </el-radio-group>
             <span style="font-size: 12px; color: #909399;">显示行数:</span>
             <el-input-number v-model="logLines" :min="50" :max="2000" :step="50" size="small" style="width: 120px;" />
             <el-checkbox v-model="logAutoRefresh" size="small">自动刷新</el-checkbox>
             <el-button size="small" @click="fetchLogs">刷新</el-button>
           </div>
         </div>
-        <div style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;
+        <div ref="logContainer" @scroll="onLogScroll" style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;
           font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; line-height: 1.6;
-          max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
-          <div v-for="(line, i) in logData" :key="i" :style="{ color: logColor(line) }">{{ line }}</div>
-          <div v-if="logData.length === 0" style="color: #666;">暂无日志</div>
+          max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; position: relative;">
+          <div v-for="(line, i) in filteredLogData" :key="i" :style="{ color: logColor(line) }">{{ line }}</div>
+          <div v-if="filteredLogData.length === 0" style="color: #666;">暂无日志</div>
+        </div>
+        <div v-if="logUserScrolledUp" style="margin-top: 6px; text-align: right;">
+          <el-button size="small" type="primary" plain @click="scrollLogToBottom">↓ 回到底部（查看最新）</el-button>
         </div>
       </el-card>
     </el-tab-pane>
@@ -134,7 +143,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import AdminUserTable from '../components/AdminUserTable.vue'
@@ -210,12 +219,40 @@ const saveSettings = async () => {
 const logData = ref([])
 const logLines = ref(200)
 const logAutoRefresh = ref(true)
+const logLevel = ref('ALL')
+const logContainer = ref(null)
+const logUserScrolledUp = ref(false)
 let logTimer = null
+
+// 级别筛选（日志格式: 时间戳 模块名 级别 消息）
+const filteredLogData = computed(() => {
+  if (logLevel.value === 'ALL') return logData.value
+  return logData.value.filter(line => line.includes(` ${logLevel.value} `))
+})
+
+const scrollLogToBottom = () => {
+  const el = logContainer.value
+  if (el) el.scrollTop = el.scrollHeight
+  logUserScrolledUp.value = false
+}
+
+const onLogScroll = () => {
+  const el = logContainer.value
+  if (!el) return
+  // 距底部 30px 内视为"在底部"，恢复跟随最新日志
+  logUserScrolledUp.value = el.scrollHeight - el.scrollTop - el.clientHeight > 30
+}
 
 const fetchLogs = async () => {
   try {
     const { data } = await axios.get('/api/v1/admin/logs', { params: { lines: logLines.value } })
     logData.value = data.logs || []
+    // 只在用户没有上翻时，自动滚动到底部显示最新日志
+    if (!logUserScrolledUp.value) {
+      await nextTick()
+      const el = logContainer.value
+      if (el) el.scrollTop = el.scrollHeight
+    }
   } catch {}
 }
 

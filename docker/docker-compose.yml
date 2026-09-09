@@ -10,9 +10,12 @@ services:
       - "5553:5553"
     env_file:
       - ../.env
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       - ./data:/app/data
       - ../.env:/app/.env   # 管理面板在线配置直接写宿主机 .env，容器重建不丢
+      - /etc/localtime:/etc/localtime:ro   # 容器时区与宿主机一致（UTC→CST）
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5553/health"]
