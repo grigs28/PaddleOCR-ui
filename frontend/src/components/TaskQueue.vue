@@ -1,7 +1,10 @@
 <template>
   <div>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <h4 style="margin: 0;">转换队列 ({{ taskStore.sortedTasks.length }})</h4>
+      <h4 style="margin: 0;">转换队列 ({{ taskStore.sortedTasks.length }})
+        <span v-if="completedCount" style="font-size: 12px; color: #67c23a; font-weight: normal;">成功 {{ completedCount }}</span>
+        <span v-if="failedCount" style="font-size: 12px; color: #f56c6c; font-weight: normal;">失败 {{ failedCount }}</span>
+      </h4>
       <div style="display: flex; gap: 8px;">
         <el-button size="small" @click="toggleSelectAll" :disabled="allTasks.length === 0">
           {{ allSelected ? '取消全选' : '全选' }}
@@ -71,6 +74,8 @@ const allTasks = computed(() => taskStore.sortedTasks)
 const allSelected = computed(() =>
   allTasks.value.length > 0 && allTasks.value.every(t => selectedIds.value.includes(t.id))
 )
+const completedCount = computed(() => allTasks.value.filter(t => t.status === 'completed').length)
+const failedCount = computed(() => allTasks.value.filter(t => t.status === 'failed').length)
 
 const toggleSelect = (id, checked) => {
   if (checked) {

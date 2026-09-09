@@ -541,7 +541,13 @@ class TaskEngine:
                 ocr_result = await ocr_client.recognize_ppocrv6(work_path, is_pdf)
             else:  # mineru
                 from backend.services.mineru_client import process_mineru
-                ocr_result = await process_mineru(work_path, result_dir)
+
+                # MinerU 原生进度 0-100% 映射到任务进度的 10%~90% 区间
+                async def _on_mineru_progress(p: int):
+                    mapped = 10 + int(p * 0.8)
+                    await self._push_progress(task_id, user_id, mapped)
+
+                ocr_result = await process_mineru(work_path, result_dir, on_progress=_on_mineru_progress)
 
             await self._push_progress(task_id, user_id, 90)
 
