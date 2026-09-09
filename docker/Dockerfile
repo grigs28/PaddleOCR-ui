@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制后端代码
 COPY backend/ backend/
 
+# 更新日志（版本号来源）
+COPY CHANGELOG.md .
+
 # 复制前端构建产物
 COPY frontend/dist/ static/
 

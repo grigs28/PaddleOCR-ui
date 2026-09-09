@@ -130,10 +130,33 @@ async def health_check():
     return {"status": "ok"}
 
 
+def _read_changelog() -> str:
+    """读取项目根目录的 CHANGELOG.md"""
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "CHANGELOG.md")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _latest_version() -> str:
+    """从 CHANGELOG.md 提取最新版本号（第一个 ## [x.y.z] 条目）"""
+    import re
+    m = re.search(r"^##\s+\[(\d+\.\d+\.\d+)\]", _read_changelog(), re.MULTILINE)
+    return m.group(1) if m else app.version
+
+
 @app.get("/api/version")
 async def get_version():
-    """返回 UI 版本和 PaddleOCR 引擎版本（引擎版本硬编码，以 vlm-server 实际模型为准）"""
-    return {"ui_version": app.version, "engine_version": "PaddleOCR-VL-1.6-0.9B"}
+    """返回 UI 版本（自动读取 CHANGELOG.md 最新条目）和 PaddleOCR 引擎版本（硬编码，以 vlm-server 实际模型为准）"""
+    return {"ui_version": _latest_version(), "engine_version": "PaddleOCR-VL-1.6-0.9B"}
+
+
+@app.get("/api/changelog")
+async def get_changelog():
+    """返回 CHANGELOG.md 原文（前端 markdown 渲染）"""
+    return {"content": _read_changelog()}
 
 
 # 注册 API 路由
