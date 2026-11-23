@@ -15,8 +15,11 @@ import os
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import tempfile
+import zipfile
+import zlib
 
 from backend.config import get_settings
 
@@ -38,14 +41,71 @@ class DocxValidationError(ValueError):
     """DOCX 结构或大小校验失败；调用方不应回退到 python-docx 继续解析。"""
 
 
+def _entry_output_chunks(zf, info, chunk_size: int = 1024 * 1024):
+    """按 ZIP 本地头读取原始压缩数据并真正解压，逐块产出实际输出。
+
+    不使用 ZipExtFile.read()：它会按中央目录声明的 file_size 截断，
+    攻击者可以伪造声明大小绕过解压计数。
+    """
+    fp = zf.fp
+    fp.seek(info.header_offset)
+    header = fp.read(30)
+    if len(header) != 30 or header[:4] != b"PK\x03\x04":
+        raise DocxValidationError("无效的 ZIP 本地文件头")
+
+    (sig, version, flags, method, mtime, mdate, crc,
+     comp_size, uncomp_size, name_len, extra_len) = struct.unpack(
+        "<4sHHHHHIIIHH", header
+    )
+
+    if flags & 0x1 or info.flag_bits & 0x1:
+        raise DocxValidationError("不支持加密 ZIP")
+    if method != info.compress_type:
+        raise DocxValidationError("ZIP 本地头与中央目录压缩方法不一致")
+    # 数据描述符（flag 0x8）存在时，本地头的 comp_size 可能为 0
+    if (flags & 0x8) == 0 and comp_size not in (0, info.compress_size):
+        raise DocxValidationError("ZIP 压缩大小不一致")
+
+    data_start = info.header_offset + 30 + name_len + extra_len
+    fp.seek(data_start)
+    remaining = info.compress_size
+
+    if method == 0:  # stored
+        while remaining > 0:
+            chunk = fp.read(min(chunk_size, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+        return
+
+    if method == 8:  # deflate
+        decomp = zlib.decompressobj(-15)
+        while remaining > 0:
+            chunk = fp.read(min(chunk_size, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            while chunk:
+                out = decomp.decompress(chunk, chunk_size)
+                chunk = decomp.unconsumed_tail
+                if out:
+                    yield out
+        out = decomp.flush()
+        if out:
+            yield out
+        return
+
+    raise DocxValidationError(f"不支持的 ZIP 压缩方法: {method}")
+
+
 def _check_docx_archive(docx_path: str) -> None:
     """实际解压 DOCX 并计数，拒绝压缩炸弹/异常 ZIP。
 
-    不依赖中央目录声明的 file_size：逐条流式解压，累计真实输出字节数。
-    该函数是 CPU/IO 操作，必须在工作线程中调用，不能阻塞事件循环。
+    不依赖中央目录声明的 file_size：按本地头读取原始压缩流、用 zlib
+    真正解压，累计实际输出并与声明大小比对。该函数是 CPU/IO 操作，
+    必须在工作线程中调用，不能阻塞事件循环。
     """
-    import zipfile
-
     try:
         with zipfile.ZipFile(docx_path) as zf:
             infos = zf.infolist()
@@ -63,21 +123,22 @@ def _check_docx_archive(docx_path: str) -> None:
             for info in infos:
                 if info.is_dir():
                     continue
-                try:
-                    with zf.open(info) as f:
-                        while True:
-                            chunk = f.read(1024 * 1024)
-                            if not chunk:
-                                break
-                            total += len(chunk)
-                            if total > _MAX_DOCX_UNCOMPRESSED:
-                                raise DocxValidationError(
-                                    f"DOCX 解压后过大（上限 {_MAX_DOCX_UNCOMPRESSED} bytes）"
-                                )
-                except (RuntimeError, NotImplementedError, zipfile.BadZipFile) as e:
-                    raise DocxValidationError(f"DOCX 解压失败: {e}")
-    except zipfile.BadZipFile as e:
-        raise DocxValidationError(f"无效的 DOCX 文件: {e}")
+                entry_total = 0
+                for chunk in _entry_output_chunks(zf, info):
+                    entry_total += len(chunk)
+                    total += len(chunk)
+                    if total > _MAX_DOCX_UNCOMPRESSED:
+                        raise DocxValidationError(
+                            f"DOCX 解压后过大（上限 {_MAX_DOCX_UNCOMPRESSED} bytes）"
+                        )
+                if entry_total != info.file_size:
+                    raise DocxValidationError(
+                        f"ZIP 声明大小与实际解压大小不一致: {info.filename}"
+                    )
+    except DocxValidationError:
+        raise
+    except Exception as e:
+        raise DocxValidationError(f"DOCX 校验失败: {e}")
 
 
 def _inline_media(md: str, media_dir: str) -> str:
@@ -183,27 +244,28 @@ async def docx_to_markdown(docx_path: str) -> str:
         finally:
             shutil.rmtree(media_dir, ignore_errors=True)
 
-    try:
-        async with _PANDOC_SEMAPHORE:
+    async with _PANDOC_SEMAPHORE:
+        try:
             md = await asyncio.wait_for(
                 asyncio.to_thread(_convert), timeout=timeout + 10
             )
-        if md and md.strip():
-            return md
-        logger.warning(f"Pandoc 输出为空，回退纯文本: {docx_path}")
-    except DocxValidationError:
-        # 压缩炸弹/非法 ZIP：禁止回退到 python-docx 继续解析
-        raise
-    except asyncio.TimeoutError:
-        # 解压校验或 Pandoc 超时：不再回退，避免重复解析大文件
-        raise
-    except Exception as e:
-        logger.warning(f"Pandoc DOCX→Markdown 失败，回退纯文本: {e}")
+            if md and md.strip():
+                return md
+            logger.warning(f"Pandoc 输出为空，回退纯文本: {docx_path}")
+        except DocxValidationError:
+            # 压缩炸弹/非法 ZIP：禁止回退到 python-docx 继续解析
+            raise
+        except asyncio.TimeoutError:
+            # 解压校验或 Pandoc 超时：不再回退，避免重复解析大文件
+            raise
+        except Exception as e:
+            logger.warning(f"Pandoc DOCX→Markdown 失败，回退纯文本: {e}")
 
-    # 回退：python-docx 提取纯文本（无标题/表格结构）
-    from backend.services.pdf_docx import docx_to_text
+        # 回退：python-docx 提取纯文本（无标题/表格结构）
+        # 保持在信号量内，避免回退路径绕过并发限制
+        from backend.services.pdf_docx import docx_to_text
 
-    return await asyncio.to_thread(docx_to_text, docx_path)
+        return await asyncio.to_thread(docx_to_text, docx_path)
 
 
 async def office_to_markdown(file_path: str) -> str:
