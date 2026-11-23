@@ -96,7 +96,8 @@ bash start.sh
 - 专用 API：`POST /api/v1/convert/markdown`（DOCX/DOC 同步；PDF 异步任务）、`POST /api/v1/convert/docx`（DOC/DOCX/ODT/RTF → DOCX）。
 - **图片型 PDF**（无文本层）：仍走「引擎 OCR → Markdown → `ExportService.md_to_docx`」。
 - exactdoc 失败/超时/超过 `pdf_docx_max_pages` 时自动回退 Markdown→DOCX；不影响任务完成。
-- 配置：`PDF_DOCX_DIRECT_ENABLED` / `PDF_DOCX_REFINE_ROUNDS` / `PDF_DOCX_MAX_PAGES` / `PDF_DOCX_TIMEOUT`。
+- 配置：`PDF_DOCX_DIRECT_ENABLED` / `PDF_DOCX_REFINE_ROUNDS` / `PDF_DOCX_MAX_PAGES` / `PDF_DOCX_TIMEOUT` / `OFFICE_MARKDOWN_TIMEOUT`。
+- Office 同步转换 API 最多 2 并发；DOCX→Markdown 图片内联限制单张 20MB、总量 50MB。
 
 ### 进度估算 (`backend/services/progress_estimator.py`)
 

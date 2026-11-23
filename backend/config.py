@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     pdf_docx_max_pages: int = 500        # 0=不限制；超过则回退 OCR→MD→DOCX
     pdf_docx_timeout: int = 1800         # 单次转换超时（秒）
 
+    # Office 文档直转（DOCX→Markdown / DOC→DOCX）超时
+    office_markdown_timeout: int = 300
+
     # 日志配置
     log_file: str = "data/logs/app.log"
 

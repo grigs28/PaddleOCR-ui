@@ -7,6 +7,7 @@
   - DOC/DOCX/ODT/RTF：转换并直接返回 DOCX 文件
 """
 
+import asyncio
 import os
 import shutil
 
@@ -32,6 +33,9 @@ router = APIRouter(prefix="/api/v1/convert", tags=["文档转换"])
 _DOCX_MIME = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+
+# 同步转换接口的并发上限，避免绕过任务队列打满 CPU/LibreOffice
+_CONVERT_SEMAPHORE = asyncio.Semaphore(2)
 
 
 async def _save_upload(file: UploadFile) -> tuple[str, str, int]:
@@ -114,9 +118,10 @@ async def convert_to_markdown(
             "message": "PDF 解析为异步任务，请轮询任务结果",
         }
 
-    # DOCX / DOC：同步转换
+    # DOCX / DOC：同步转换（受并发上限保护）
     try:
-        markdown = await office_to_markdown(file_path)
+        async with _CONVERT_SEMAPHORE:
+            markdown = await office_to_markdown(file_path)
         return {
             "markdown": markdown,
             "format": ext,
@@ -150,7 +155,8 @@ async def convert_to_docx(
     try:
         out_dir = os.path.join(upload_dir, "out")
         os.makedirs(out_dir, exist_ok=True)
-        docx_path = await office_to_docx(file_path, out_dir)
+        async with _CONVERT_SEMAPHORE:
+            docx_path = await office_to_docx(file_path, out_dir)
         if not docx_path or not os.path.isfile(docx_path):
             raise HTTPException(
                 status_code=500,

@@ -23,6 +23,7 @@ EDITABLE_SETTINGS = {
     "pdf_docx_refine_rounds": {"label": "PDF→DOCX 精修轮数（0=快速）", "type": "int", "min": 0, "max": 5},
     "pdf_docx_max_pages": {"label": "PDF→DOCX 最大页数（0=不限）", "type": "int", "min": 0, "max": 5000},
     "pdf_docx_timeout": {"label": "PDF→DOCX 转换超时（秒）", "type": "int", "min": 60, "max": 7200},
+    "office_markdown_timeout": {"label": "Office→Markdown 超时（秒）", "type": "int", "min": 10, "max": 3600},
     # 并发配置
     "image_semaphore_size": {"label": "图片并发数", "type": "int", "min": 1, "max": 20},
     "pdf_semaphore_size": {"label": "PDF 并发数", "type": "int", "min": 1, "max": 20},

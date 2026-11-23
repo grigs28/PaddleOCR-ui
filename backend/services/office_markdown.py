@@ -8,63 +8,134 @@ DOCX 有显式结构，直接转 Markdown 比「DOCX→PDF→OCR→Markdown」�
 """
 
 import asyncio
+import base64
 import logging
+import mimetypes
 import os
+import re
 import shutil
+import signal
+import subprocess
 import tempfile
+
+from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# 同步转换的全局并发上限，避免 HTTP 请求绕过任务队列打满 CPU
+_PANDOC_SEMAPHORE = asyncio.Semaphore(2)
+
+# 图片内联上限：单张 20MB，总量 50MB；超出则跳过该图片
+_MAX_INLINE_FILE = 20 * 1024 * 1024
+_MAX_INLINE_TOTAL = 50 * 1024 * 1024
+
 
 def _inline_media(md: str, media_dir: str) -> str:
-    """把 Pandoc 提取出来的图片改写成 data URI，保证 Markdown 自包含。"""
-    import base64
-    import mimetypes
-    import re
+    """把 Pandoc 提取出来的图片改写成 data URI。
+
+    只读取 media_dir 内的文件（realpath 包含检查），并限制单张/总大小，
+    防止恶意 DOCX 造成任意文件读取或资源膨胀。
+    """
+    real_root = os.path.realpath(media_dir)
+    total = 0
 
     def _repl(m):
+        nonlocal total
         prefix, src, suffix = m.group(1), m.group(2), m.group(3)
-        path = src
-        if not os.path.isabs(path):
-            path = os.path.join(media_dir, path)
-        if not os.path.isfile(path):
-            candidate = os.path.join(media_dir, "media", os.path.basename(src))
-            if os.path.isfile(candidate):
-                path = candidate
-        if not os.path.isfile(path):
+        if not src or src.startswith(("data:", "http://", "https://")):
             return m.group(0)
-        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+        candidate = src if os.path.isabs(src) else os.path.join(real_root, src)
+        path = os.path.realpath(candidate)
+        if not (path == real_root or path.startswith(real_root + os.sep)):
+            logger.warning(f"拒绝 media 目录外的图片路径: {src}")
+            return ""
+        if not os.path.isfile(path):
+            # Pandoc 也可能输出 media/xxx 相对路径
+            fallback = os.path.realpath(
+                os.path.join(real_root, "media", os.path.basename(src))
+            )
+            if fallback.startswith(real_root + os.sep) and os.path.isfile(fallback):
+                path = fallback
+            else:
+                return ""
+
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return ""
+        if size > _MAX_INLINE_FILE or total + size > _MAX_INLINE_TOTAL:
+            logger.warning(f"跳过过大的内联图片: {path} ({size} bytes)")
+            return ""
+
         with open(path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode()
+            data = f.read()
+        total += len(data)
+        mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        encoded = base64.b64encode(data).decode()
         return f"{prefix}data:{mime};base64,{encoded}{suffix}"
 
-    md = re.sub(r'(<img[^>]*\bsrc=")([^"]*)(")', _repl, md)
+    md = re.sub(r'(<img[^>]*\bsrc=")([^"]*)("[^>]*>)', _repl, md)
     md = re.sub(r'(!\[[^\]]*\]\()([^)]*)(\))', _repl, md)
     return md
 
 
+def _run_pandoc(docx_path: str, media_dir: str, timeout: int) -> str:
+    """同步调用 Pandoc，带硬超时；超时会杀掉整个进程组。"""
+    import pypandoc
+
+    pandoc = pypandoc.get_pandoc_path()
+    cmd = [
+        pandoc,
+        docx_path,
+        "-f", "docx",
+        "-t", "gfm",
+        "--wrap=none",
+        "--extract-media", media_dir,
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            proc.kill()
+        else:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except OSError:
+                proc.kill()
+        proc.communicate()
+        raise TimeoutError(f"Pandoc 转换超时 ({timeout}s)")
+
+    if proc.returncode != 0:
+        detail = (stderr or "").strip()[-300:]
+        raise RuntimeError(f"Pandoc 退出码 {proc.returncode}: {detail}")
+    return stdout or ""
+
+
 async def docx_to_markdown(docx_path: str) -> str:
     """DOCX → GFM Markdown（Pandoc，图片内联为 data URI）。"""
+    timeout = get_settings().office_markdown_timeout
 
     def _convert() -> str:
-        import pypandoc
-        import shutil
-        import tempfile
-
         media_dir = tempfile.mkdtemp(prefix="docx_media_")
         try:
-            md = pypandoc.convert_file(
-                docx_path,
-                "gfm",
-                format="docx",
-                extra_args=["--wrap=none", "--extract-media", media_dir],
-            )
+            md = _run_pandoc(docx_path, media_dir, timeout)
             return _inline_media(md, media_dir)
         finally:
             shutil.rmtree(media_dir, ignore_errors=True)
 
     try:
-        md = await asyncio.to_thread(_convert)
+        async with _PANDOC_SEMAPHORE:
+            md = await asyncio.wait_for(
+                asyncio.to_thread(_convert), timeout=timeout + 10
+            )
         if md and md.strip():
             return md
         logger.warning(f"Pandoc 输出为空，回退纯文本: {docx_path}")

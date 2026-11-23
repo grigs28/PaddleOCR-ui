@@ -23,6 +23,9 @@
 ### 修复
 - `.env` 大小写键重复导致同名配置互相覆盖；启动同步和管理面板写回统一使用大写键
 - DOCX 下载优先返回任务结果目录中已保存的 `result.docx`，避免 exactdoc 直转产物被 Markdown 重新生成覆盖
+- DOCX→Markdown 图片内联增加路径包含检查和大小上限，修复潜在任意文件读取与资源膨胀
+- Office 同步转换增加 Pandoc 硬超时和 2 并发上限，避免绕过任务队列打满 CPU
+- 新增 `OFFICE_MARKDOWN_TIMEOUT` 配置
 
 ## [1.1.2] - 2026-09-09
 

@@ -217,6 +217,8 @@ DELETE /api/v1/tasks/{task_id}
 - 图片会内联为 `data:image/...;base64,...`，Markdown 自包含
 - DOC 先用 LibreOffice 转 DOCX，再走 Pandoc
 - 不走 OCR，不创建任务记录
+- 同步转换最多 **2 个并发**；Pandoc 超时 `OFFICE_MARKDOWN_TIMEOUT`（默认 300s）
+- 图片内联限制：单张 20MB、总量 50MB，超出会跳过该图片
 
 ```bash
 curl -X POST http://192.168.0.8:5553/api/v1/convert/markdown \
@@ -292,6 +294,7 @@ curl -X POST http://192.168.0.8:5553/api/v1/convert/docx \
 | `PDF_DOCX_REFINE_ROUNDS` | `3` | exactdoc 精修轮数；`0` 最快，但页数偏差较大 |
 | `PDF_DOCX_MAX_PAGES` | `500` | 超过页数回退 OCR→MD→DOCX；`0` 表示不限制 |
 | `PDF_DOCX_TIMEOUT` | `1800` | 单次 exactdoc 转换超时（秒） |
+| `OFFICE_MARKDOWN_TIMEOUT` | `300` | DOCX→Markdown 的 Pandoc 超时（秒） |
 
 `PDF_DOCX_DIRECT_ENABLED` 为布尔开关，需写入 `.env`；其余三项可在管理面板在线修改。
 
@@ -308,6 +311,8 @@ curl -X POST http://192.168.0.8:5553/api/v1/convert/docx \
 - DOCX→Markdown 的图片内联为 data URI，图片多时 Markdown 体积会明显增大
 - DOC→DOCX / DOC→Markdown 依赖 LibreOffice；无 LibreOffice 时回退原 OCR 流程
 - PDF→Markdown 是异步任务；DOCX/DOC→Markdown 是同步接口
+- 同步转换接口最多 2 并发；Pandoc 超时默认 300s
+- DOCX→Markdown 图片内联限制单张 20MB、总量 50MB
 
 ---
 
