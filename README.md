@@ -39,14 +39,17 @@
 ### Docker 部署（推荐）
 
 ```bash
-cd docker
-docker compose up -d --build
+# 本机网络经 TLS 代理时，先构建镜像（注入代理根 CA），再启动
+docker build --secret id=tproxy_ca,src=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+  -t paddleocr-ui:latest -f docker/Dockerfile .
+cd docker && docker compose up -d
 ```
 
-或手动构建：
+或手动构建（本机网络经 TLS 代理时，需注入代理根 CA）：
 
 ```bash
-docker build -t paddleocr-ui -f docker/Dockerfile .
+docker build --secret id=tproxy_ca,src=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+  -t paddleocr-ui -f docker/Dockerfile .
 docker run -d -p 5553:5553 \
   -v ./data:/app/data \
   -e DB_HOST=your-db-host \

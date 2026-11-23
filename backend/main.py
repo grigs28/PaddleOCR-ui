@@ -13,6 +13,7 @@ from backend.api.file_router import router as file_router
 from backend.api.admin_router import router as admin_router
 from backend.api.admin_settings_router import router as admin_settings_router
 from backend.api.admin_log_router import router as admin_log_router
+from backend.api.convert_router import router as convert_router
 from backend.services.task_engine import task_engine
 
 # 配置日志
@@ -175,6 +176,7 @@ app.include_router(file_router)
 app.include_router(admin_router)
 app.include_router(admin_settings_router)
 app.include_router(admin_log_router)
+app.include_router(convert_router)
 
 # 静态文件服务（前端构建产物）— 必须放在所有路由之后
 _static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")

@@ -416,6 +416,57 @@ async def convert_to_pdf(input_path: str, output_dir: str) -> str | None:
     return None
 
 
+async def convert_to_docx(input_path: str, output_dir: str) -> str | None:
+    """用 LibreOffice headless 将 doc/odt/rtf 等转为 docx。"""
+    if not is_libreoffice_available():
+        return None
+
+    import tempfile
+
+    profile_dir = tempfile.mkdtemp(prefix="lo_profile_")
+    proc = None
+    try:
+        cmd = [
+            _libreoffice_path,
+            f"-env:UserInstallation=file://{profile_dir}",
+            "--headless",
+            "--convert-to", "docx",
+            "--outdir", output_dir,
+            input_path,
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=get_settings().libreoffice_timeout
+        )
+        if proc.returncode == 0:
+            base = os.path.splitext(os.path.basename(input_path))[0]
+            docx_path = os.path.join(output_dir, f"{base}.docx")
+            if os.path.exists(docx_path):
+                return docx_path
+        logger.warning(
+            f"LibreOffice DOCX 转换失败: rc={proc.returncode}, "
+            f"stderr={stderr.decode()[:200]}"
+        )
+    except asyncio.TimeoutError:
+        logger.warning("LibreOffice DOCX 转换超时")
+        if proc:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"LibreOffice DOCX 转换异常: {e}")
+    finally:
+        import shutil
+
+        shutil.rmtree(profile_dir, ignore_errors=True)
+    return None
+
+
 def is_legacy_office(filename: str) -> bool:
     """doc/xls 旧格式，python 库不支持，必须走 LibreOffice"""
     ext = os.path.splitext(filename)[1].lstrip(".").lower()

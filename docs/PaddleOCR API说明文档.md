@@ -99,6 +99,22 @@ curl -X POST http://192.168.0.8:5553/api/v1/tasks \
 - 结果先写入 `result.md`，再按需导出 `docx`
 - DOCX 是 OCR 文字重建，不保留原版式
 
+### Office 文档（DOCX / DOC）
+
+Office 文档在 `output_formats` 只包含 `docx` / `markdown` 时走快速路径，不调用 OCR 引擎：
+
+| 输入 | 输出 | 实现 |
+|---|---|---|
+| `.docx` | `docx` | 直接复制原文件为 `result.docx` |
+| `.doc` | `docx` | LibreOffice 直接转 DOCX |
+| `.docx` | `markdown` | Pandoc 直转 GFM |
+| `.doc` | `markdown` | LibreOffice 转 DOCX → Pandoc |
+| `.docx`/`.doc` | `docx` + `markdown` | 同时生成 DOCX 和 Markdown |
+
+- DOCX→Markdown 保留标题、列表、表格；图片内联为 data URI
+- 混合其他格式（如 `json`/`txt`）时，仍由所选引擎处理这些格式
+- 快速路径失败时自动回退到原有 OCR 流程
+
 ### 回退机制
 
 以下情况 exactdoc 会回退到 `Markdown → DOCX`，任务不会失败：
@@ -172,6 +188,82 @@ DELETE /api/v1/tasks/{task_id}
 
 ---
 
+## 5.1 文档转换专用 API
+
+除异步任务 API 外，提供两个专用转换接口，适合「直接把文档转成 Markdown / DOCX」的场景。
+
+### POST /api/v1/convert/markdown
+
+认证：`X-API-Key` 或浏览器 Cookie。
+
+| 表单字段 | 必填 | 说明 |
+|---|---|---|
+| `file` | 是 | `.docx` / `.doc` / `.pdf` |
+| `engine` | 否 | 仅 PDF 生效：`mineru`（默认）/ `vl16` / `ppocrv6` |
+
+**DOCX / DOC：同步返回 Markdown**
+
+```json
+{
+  "markdown": "# 标题\n\n正文...",
+  "format": "docx",
+  "engine": "pandoc",
+  "chars": 12345,
+  "filename": "报告.docx"
+}
+```
+
+- DOCX 用 Pandoc 转 GFM，保留标题、列表、表格
+- 图片会内联为 `data:image/...;base64,...`，Markdown 自包含
+- DOC 先用 LibreOffice 转 DOCX，再走 Pandoc
+- 不走 OCR，不创建任务记录
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/convert/markdown \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@报告.docx"
+```
+
+**PDF：创建异步任务**
+
+```json
+{
+  "task_id": 9001,
+  "status": "queued",
+  "format": "pdf",
+  "engine": "mineru",
+  "poll": "/api/v1/tasks/9001",
+  "message": "PDF 解析为异步任务，请轮询任务结果"
+}
+```
+
+- 轮询 `GET /api/v1/tasks/9001`，返回的 `result` 字段就是 Markdown
+- 使用现有任务队列、并发控制和 WebSocket 进度推送
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/convert/markdown \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@招标文件.pdf" \
+  -F "engine=mineru"
+```
+
+### POST /api/v1/convert/docx
+
+| 表单字段 | 必填 | 说明 |
+|---|---|---|
+| `file` | 是 | `.doc` / `.docx` / `.odt` / `.rtf` |
+
+- `.docx`：直接返回原文件
+- `.doc` / `.odt` / `.rtf`：LibreOffice 转 DOCX
+- 响应为 DOCX 二进制，`Content-Disposition: attachment`
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/convert/docx \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@旧文档.doc" \
+  -o 旧文档.docx
+```
+
 ## 6. 结果目录
 
 每个任务结果位于 `data/results/<task_id>/`：
@@ -213,6 +305,9 @@ DELETE /api/v1/tasks/{task_id}
 - 图片型 PDF 不走 exactdoc，仍是 OCR 文字重建
 - `docx-only` 快速路径下 `result.md` 是 DOCX 提取文本，仅用于预览
 - 下载接口优先返回已保存的 `result.docx`；未勾选 `docx` 时才会从 `result.md` 现场生成
+- DOCX→Markdown 的图片内联为 data URI，图片多时 Markdown 体积会明显增大
+- DOC→DOCX / DOC→Markdown 依赖 LibreOffice；无 LibreOffice 时回退原 OCR 流程
+- PDF→Markdown 是异步任务；DOCX/DOC→Markdown 是同步接口
 
 ---
 

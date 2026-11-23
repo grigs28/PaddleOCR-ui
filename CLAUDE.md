@@ -17,8 +17,11 @@ npm run dev                                                # 开发服务器 :30
 npm run build                                              # 产物输出到 frontend/dist/
 
 # Docker（构建镜像前必须先生成 frontend/dist/，Dockerfile 会 COPY 到 /app/static）
+# 本机网络经过 TLS 代理，构建时需注入代理根 CA（BuildKit secret）：
 cd frontend && npm run build
-cd docker && docker compose up -d --build
+docker build --secret id=tproxy_ca,src=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+  -t paddleocr-ui:latest -f docker/Dockerfile .
+cd docker && docker compose up -d
 
 # 一键启动：检查 .env、构建前端、初始化数据库，最后以单 worker 启动
 bash start.sh
@@ -89,6 +92,8 @@ bash start.sh
 
 - **非图片型 PDF**（有文本层）且 `output_formats` 含 `docx`：使用 exactdoc 直转（`backend/services/pdf_docx.py`），默认 `--refine 3`，保留原版式、图片、页眉页脚和活动页码。
 - `output_formats == ["docx"]` 且 PDF 有文本层时走 `_process_pdf_docx` 快速路径，不调用 OCR 引擎；`result.md` 由 DOCX 文本提取，仅用于预览。混合格式请求仍用引擎生成 Markdown/JSON/TXT。
+- **DOCX/DOC + 仅 `docx`/`markdown`**：走 `_process_office_direct` 快速路径，不调用 OCR。DOCX→Markdown 用 Pandoc（`backend/services/office_markdown.py`），DOC→DOCX 用 LibreOffice，DOC→Markdown 为 DOC→DOCX→Pandoc。图片内联为 data URI。
+- 专用 API：`POST /api/v1/convert/markdown`（DOCX/DOC 同步；PDF 异步任务）、`POST /api/v1/convert/docx`（DOC/DOCX/ODT/RTF → DOCX）。
 - **图片型 PDF**（无文本层）：仍走「引擎 OCR → Markdown → `ExportService.md_to_docx`」。
 - exactdoc 失败/超时/超过 `pdf_docx_max_pages` 时自动回退 Markdown→DOCX；不影响任务完成。
 - 配置：`PDF_DOCX_DIRECT_ENABLED` / `PDF_DOCX_REFINE_ROUNDS` / `PDF_DOCX_MAX_PAGES` / `PDF_DOCX_TIMEOUT`。
@@ -157,6 +162,8 @@ bash start.sh
 | `DELETE /api/v1/files/{id}` | 管理员硬删（删文件 + `deleted=2`）/ 用户软删 |
 | `/auth/*` | SSO 登录、回调、登出、`/auth/me`、API Key CRUD |
 | `/api/v1/admin/*` | 用户管理、在线设置、`test-connection`、`clear-tasks`、`logs` |
+| `POST /api/v1/convert/markdown` | DOCX/DOC 同步转 Markdown；PDF 创建异步任务 |
+| `POST /api/v1/convert/docx` | DOC/DOCX/ODT/RTF 转 DOCX，直接返回文件 |
 | `/ws/progress` | WebSocket 进度推送 |
 | `GET /health`、`/api/version`、`/api/changelog` | 健康检查与版本信息 |
 
@@ -191,4 +198,5 @@ bash start.sh
 - 日志写 `data/logs/app.log`（10MB × 5 轮转），管理面板 `/api/v1/admin/logs` 只 tail 最近 N 行。
 - 端口 5553（后端）/ 3000（前端 dev）；`bin/cad2x` 是 3.5MB 第三方二进制，被 gitignore。
 - 数据库连接参数修改后需要重启进程——SQLAlchemy engine 在模块导入时创建，热更新只改 `.env` 不重建连接池。
+- 开发机构建 Docker 镜像时必须传 `--secret id=tproxy_ca,src=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`（TLS 代理根 CA），否则 pip 安装会 SSL 校验失败。
 - 外部服务接口细节见 `docs/`：`PP-OCRv6部署与API说明.md`、`ACADxPDF API说明文档.md`、`API.md`；早期设计与压测记录在 `docs/superpowers/`。

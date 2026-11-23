@@ -8,10 +8,16 @@
 
 ### 新增
 - 非图片型 PDF 直转 DOCX：有文本层的 PDF 使用 exactdoc（refine 3）直接生成 DOCX，保留原版式、图片、页眉页脚和活动页码
+- 文档转换 API `POST /api/v1/convert/markdown`：DOCX/DOC 同步返回 Markdown；PDF 创建异步任务
+- 文档转换 API `POST /api/v1/convert/docx`：DOC/DOCX/ODT/RTF 直接返回 DOCX
+- DOCX/DOC 直转 Markdown：Pandoc 保留标题/列表/表格，图片内联为 data URI
+- DOC/DOCX + docx 输出：LibreOffice 直转/复制，不再走 OCR
 - 管理面板新增 PDF→DOCX 精修轮数、最大页数、转换超时配置
 
 ### 变更
 - `output_formats` 含 `docx` 的 PDF 任务，DOCX 生成由 Markdown 转换改为 exactdoc 直转；图片型 PDF 仍走 OCR→Markdown→DOCX
+- Office 任务（doc/docx + 仅 docx/markdown）走快速路径，不调用 OCR 引擎
+- Docker 构建 pip 通过 BuildKit secret 注入 TLS 代理根 CA
 - 新增依赖 `exactdoc==0.3.0b3`（Apache-2.0）
 
 ### 修复

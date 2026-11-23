@@ -154,6 +154,19 @@ class TaskEngine:
             else:
                 sem = self.image_semaphore
 
+            # DOCX/DOC + 仅 docx/markdown：直接 Office 转换，跳过 OCR
+            _ext = get_file_extension(filename)
+            if (
+                _ext in ("doc", "docx")
+                and output_formats
+                and set(output_formats) <= {"docx", "markdown"}
+            ):
+                async with sem:
+                    if await self._process_office_direct(
+                        task_id, task.user_id, filename, file_path, output_formats
+                    ):
+                        return
+
             # 非图片型 PDF 且只要求 DOCX：直接 exactdoc 直转，跳过 OCR 引擎
             _settings = get_settings()
             if (
@@ -553,14 +566,6 @@ class TaskEngine:
 
         # 预览用 result.md（纯文本；版式以 result.docx 为准）
         md_text = await asyncio.to_thread(docx_to_text, docx_path)
-        if not md_text:
-            md_text = "（已生成 DOCX，请下载查看）"
-        with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
-            f.write(md_text)
-
-        # 保留源文件
-        shutil.copy2(file_path, os.path.join(result_dir, f"source_{filename}"))
-
         pages = 0
         try:
             import pypdf
@@ -568,6 +573,69 @@ class TaskEngine:
             pages = len(pypdf.PdfReader(file_path).pages)
         except Exception:
             pass
+
+        await self._finalize_direct_task(
+            task_id, user_id, result_dir, file_path, filename,
+            md_text=md_text, pages=pages, wall_start=wall_start,
+        )
+        logger.info(f"任务 {task_id} exactdoc 直转完成, {pages}页")
+        return True
+
+    async def _process_office_direct(
+        self, task_id: int, user_id: int, filename: str, file_path: str,
+        output_formats: list[str],
+    ) -> bool:
+        """DOCX/DOC + 仅 docx/markdown 的快速路径：LibreOffice/Pandoc，不走 OCR。"""
+        from backend.services.office_markdown import docx_to_markdown, office_to_docx
+
+        result_dir = get_result_path(str(task_id))
+
+        await self._update_status(task_id, "processing")
+        await self._update_field(task_id, "started_at", datetime.now())
+        wall_start = time.monotonic()
+        await self._push_progress(task_id, user_id, 10)
+
+        docx_path = await office_to_docx(file_path, result_dir)
+        if not docx_path:
+            logger.info(f"任务 {task_id} Office 直转失败，回退 OCR 流程")
+            return False
+
+        result_docx = os.path.join(result_dir, "result.docx")
+        if os.path.abspath(docx_path) != os.path.abspath(result_docx):
+            shutil.copy2(docx_path, result_docx)
+            try:
+                os.remove(docx_path)
+            except OSError:
+                pass
+
+        await self._push_progress(task_id, user_id, 60)
+
+        if "markdown" in output_formats:
+            md_text = await docx_to_markdown(result_docx)
+        else:
+            from backend.services.pdf_docx import docx_to_text
+
+            md_text = await asyncio.to_thread(docx_to_text, result_docx)
+
+        await self._push_progress(task_id, user_id, 90)
+        await self._finalize_direct_task(
+            task_id, user_id, result_dir, file_path, filename,
+            md_text=md_text, pages=1, wall_start=wall_start,
+        )
+        logger.info(f"任务 {task_id} Office 直转完成, formats={output_formats}")
+        return True
+
+    async def _finalize_direct_task(
+        self, task_id: int, user_id: int, result_dir: str, file_path: str,
+        filename: str, md_text: str, pages: int, wall_start: float,
+    ) -> None:
+        """直转路径的公共收尾：写 result.md、源文件、更新任务、推送、清理。"""
+        if not md_text:
+            md_text = "（已生成 DOCX，请下载查看）"
+        with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
+            f.write(md_text)
+
+        shutil.copy2(file_path, os.path.join(result_dir, f"source_{filename}"))
 
         processing_seconds = int(time.monotonic() - wall_start)
         completed_at = datetime.now()
@@ -586,10 +654,6 @@ class TaskEngine:
                 )
             )
             await s.commit()
-
-        logger.info(
-            f"任务 {task_id} exactdoc 直转完成, {pages}页, 用时{processing_seconds}秒"
-        )
 
         try:
             from backend.ws.progress import progress_manager
@@ -614,8 +678,6 @@ class TaskEngine:
             asyncio.create_task(
                 self._cleanup_api_task(task_id, result_dir, file_path)
             )
-
-        return True
 
     async def _process_engine_task(self, task_id: int, user_id: int, filename: str, file_path: str, engine: str):
         """PP-OCRv6 / MinerU 引擎处理流程（独立于 VL 流程）

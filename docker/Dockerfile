@@ -15,8 +15,12 @@ COPY .fonts/ /usr/share/fonts/truetype/custom/
 RUN fc-cache -fv
 
 # 安装 Python 依赖
+# 本机网络经过 TLS 代理，构建时用 BuildKit secret 注入代理根 CA：
+#   docker build --secret id=tproxy_ca,src=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ...
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=secret,id=tproxy_ca,target=/tmp/tproxy-ca.pem \
+    if [ -s /tmp/tproxy-ca.pem ]; then export PIP_CERT=/tmp/tproxy-ca.pem; fi; \
+    pip install --no-cache-dir -r requirements.txt
 
 # 复制后端代码
 COPY backend/ backend/
