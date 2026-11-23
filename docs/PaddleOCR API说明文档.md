@@ -312,7 +312,7 @@ curl -X POST http://192.168.0.8:5553/api/v1/convert/docx \
 - DOC→DOCX / DOC→Markdown 依赖 LibreOffice；无 LibreOffice 时回退原 OCR 流程
 - PDF→Markdown 是异步任务；DOCX/DOC→Markdown 是同步接口
 - 同步转换接口最多 2 并发；Pandoc 超时默认 300s
-- DOCX→Markdown 图片内联限制单张 20MB、总量 50MB
+- DOCX→Markdown 图片内联限制单张 20MB、总量 50MB；DOCX 解压后超过 500MB 会被拒绝
 
 ---
 

@@ -28,6 +28,23 @@ _PANDOC_SEMAPHORE = asyncio.Semaphore(2)
 # 图片内联上限：单张 20MB，总量 50MB；超出则跳过该图片
 _MAX_INLINE_FILE = 20 * 1024 * 1024
 _MAX_INLINE_TOTAL = 50 * 1024 * 1024
+# DOCX 解压后总大小上限，防止压缩炸弹
+_MAX_DOCX_UNCOMPRESSED = 500 * 1024 * 1024
+
+
+def _check_docx_archive(docx_path: str) -> None:
+    """在解压前检查 DOCX 声明的解压总大小，拒绝异常压缩炸弹。"""
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(docx_path) as zf:
+            total = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as e:
+        raise ValueError(f"无效的 DOCX 文件: {e}")
+    if total > _MAX_DOCX_UNCOMPRESSED:
+        raise ValueError(
+            f"DOCX 解压后过大 ({total} bytes，上限 {_MAX_DOCX_UNCOMPRESSED})"
+        )
 
 
 def _inline_media(md: str, media_dir: str) -> str:
@@ -121,6 +138,7 @@ def _run_pandoc(docx_path: str, media_dir: str, timeout: int) -> str:
 
 async def docx_to_markdown(docx_path: str) -> str:
     """DOCX → GFM Markdown（Pandoc，图片内联为 data URI）。"""
+    _check_docx_archive(docx_path)
     timeout = get_settings().office_markdown_timeout
 
     def _convert() -> str:
