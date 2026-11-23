@@ -13,6 +13,11 @@
       请求头携带 <code>X-API-Key: ak_...</code>。API Key 在「管理后台 → API Key 管理」创建。
     </el-alert>
 
+    <el-alert type="warning" :closable="false" show-icon class="mb">
+      <template #title>内网 HTTP 传输提示</template>
+      当前服务为内网 HTTP（http://192.168.0.8:5553），API Key 会以明文传输，仅限可信内网使用；如需跨网/公网访问，请通过 HTTPS 反向代理。
+    </el-alert>
+
     <el-card shadow="never" class="section">
       <template #header><h3>1. 获取 API Key</h3></template>
       <ol class="steps">

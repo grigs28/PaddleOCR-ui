@@ -27,6 +27,8 @@ X-API-Key: ak_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 使用 API Key 提交的任务优先级为 `1`，完成后 30 秒自动清理文件和数据库记录，请及时下载结果。
 
+> ⚠️ **传输安全**：当前服务为内网 HTTP（`http://192.168.0.8:5553/`），API Key 会以明文传输，仅限可信内网使用。跨网/公网访问请部署 HTTPS 反向代理。
+
 ### Cookie 会话
 
 通过 OOS SSO 登录后，浏览器携带 `paddleocr_session` Cookie。Web 界面使用该方式。

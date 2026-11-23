@@ -30,21 +30,54 @@ _MAX_INLINE_FILE = 20 * 1024 * 1024
 _MAX_INLINE_TOTAL = 50 * 1024 * 1024
 # DOCX 解压后总大小上限，防止压缩炸弹
 _MAX_DOCX_UNCOMPRESSED = 500 * 1024 * 1024
+_MAX_ZIP_ENTRIES = 10_000
+_MAX_ZIP_CENTRAL_DIR = 10 * 1024 * 1024
+
+
+class DocxValidationError(ValueError):
+    """DOCX 结构或大小校验失败；调用方不应回退到 python-docx 继续解析。"""
 
 
 def _check_docx_archive(docx_path: str) -> None:
-    """在解压前检查 DOCX 声明的解压总大小，拒绝异常压缩炸弹。"""
+    """实际解压 DOCX 并计数，拒绝压缩炸弹/异常 ZIP。
+
+    不依赖中央目录声明的 file_size：逐条流式解压，累计真实输出字节数。
+    该函数是 CPU/IO 操作，必须在工作线程中调用，不能阻塞事件循环。
+    """
     import zipfile
 
     try:
         with zipfile.ZipFile(docx_path) as zf:
-            total = sum(info.file_size for info in zf.infolist())
+            infos = zf.infolist()
+            if len(infos) > _MAX_ZIP_ENTRIES:
+                raise DocxValidationError(
+                    f"DOCX 条目过多 ({len(infos)}，上限 {_MAX_ZIP_ENTRIES})"
+                )
+            central = sum(info.compress_size for info in infos)
+            if central > _MAX_ZIP_CENTRAL_DIR:
+                raise DocxValidationError(
+                    f"DOCX 中央目录过大 ({central} bytes)"
+                )
+
+            total = 0
+            for info in infos:
+                if info.is_dir():
+                    continue
+                try:
+                    with zf.open(info) as f:
+                        while True:
+                            chunk = f.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            total += len(chunk)
+                            if total > _MAX_DOCX_UNCOMPRESSED:
+                                raise DocxValidationError(
+                                    f"DOCX 解压后过大（上限 {_MAX_DOCX_UNCOMPRESSED} bytes）"
+                                )
+                except (RuntimeError, NotImplementedError, zipfile.BadZipFile) as e:
+                    raise DocxValidationError(f"DOCX 解压失败: {e}")
     except zipfile.BadZipFile as e:
-        raise ValueError(f"无效的 DOCX 文件: {e}")
-    if total > _MAX_DOCX_UNCOMPRESSED:
-        raise ValueError(
-            f"DOCX 解压后过大 ({total} bytes，上限 {_MAX_DOCX_UNCOMPRESSED})"
-        )
+        raise DocxValidationError(f"无效的 DOCX 文件: {e}")
 
 
 def _inline_media(md: str, media_dir: str) -> str:
@@ -138,10 +171,11 @@ def _run_pandoc(docx_path: str, media_dir: str, timeout: int) -> str:
 
 async def docx_to_markdown(docx_path: str) -> str:
     """DOCX → GFM Markdown（Pandoc，图片内联为 data URI）。"""
-    _check_docx_archive(docx_path)
     timeout = get_settings().office_markdown_timeout
 
     def _convert() -> str:
+        # 解压校验在 worker 线程中执行，不阻塞事件循环，且受信号量保护
+        _check_docx_archive(docx_path)
         media_dir = tempfile.mkdtemp(prefix="docx_media_")
         try:
             md = _run_pandoc(docx_path, media_dir, timeout)
@@ -157,6 +191,12 @@ async def docx_to_markdown(docx_path: str) -> str:
         if md and md.strip():
             return md
         logger.warning(f"Pandoc 输出为空，回退纯文本: {docx_path}")
+    except DocxValidationError:
+        # 压缩炸弹/非法 ZIP：禁止回退到 python-docx 继续解析
+        raise
+    except asyncio.TimeoutError:
+        # 解压校验或 Pandoc 超时：不再回退，避免重复解析大文件
+        raise
     except Exception as e:
         logger.warning(f"Pandoc DOCX→Markdown 失败，回退纯文本: {e}")
 
