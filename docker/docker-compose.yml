@@ -2,6 +2,8 @@ version: "3.8"
 
 services:
   paddleocr-ui:
+    # 使用开发机构建并传输过来的镜像；生产机不执行 build
+    image: paddleocr-ui:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile
