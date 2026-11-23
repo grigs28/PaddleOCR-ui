@@ -4,6 +4,12 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 **版本号规则：UI 顶栏版本号自动读取本文件中最新一个 `## [x.y.z]` 条目。**
 
+## [1.3.0] - 2026-11-23
+
+### 新增
+- UI 顶栏新增「API 说明」页：API Key 获取、任务 API、文档转换 API、DWG/DXF 调用示例
+- API 文档固定生产地址 `http://192.168.0.8:5553/`，补充 API Key 获取方式和 DWG/DXF 说明
+
 ## [1.2.0] - 2026-11-23
 
 ### 新增

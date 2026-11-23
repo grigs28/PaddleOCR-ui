@@ -173,7 +173,7 @@ bash start.sh
 ## 前端
 
 - 入口 `frontend/src/main.js`：Pinia + Router + Element Plus，注册了全局 axios 401 拦截（跳 `/auth/login`）。
-- 路由只有 `/login` 和 `/`；`/` 由 `MainView.vue` 用 `activeTab` 切换三个子视图：`TaskWorkspace`（上传 + 任务队列）、`FileManagement`、`AdminPanel`。
+- 路由只有 `/login` 和 `/`；`/` 由 `MainView.vue` 用 `activeTab` 切换子视图：`TaskWorkspace`（上传 + 任务队列）、`FileManagement`、`ApiGuide`（API 调用说明，含 DWG/DXF）、`AdminPanel`（仅管理员）。
 - 路由守卫检查 `document.cookie` 里是否有 `paddleocr_session`。
 - Pinia stores：`upload`（待上传文件、outputFormats、engine、highPrecision、mergePdf）、`task`（任务列表与选中结果）、`file`（文件管理分页）、`user`。
 - 预览组件分工：`FilePreview.vue` 只负责源文件（图片/PDF iframe）；`MarkdownPreview.vue` 渲染识别结果，并在 `ppocrData` 存在时挂载 `PPOCRPreview.vue`（PP-OCRv6 文字层）。

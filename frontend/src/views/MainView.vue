@@ -9,6 +9,7 @@
         <el-tabs v-model="activeTab" style="margin-bottom: -1px;">
           <el-tab-pane label="上传任务" name="workspace" />
           <el-tab-pane label="文件管理" name="files" />
+          <el-tab-pane label="API 说明" name="api" />
           <el-tab-pane v-if="userStore.isAdmin" label="管理后台" name="admin" />
         </el-tabs>
       </div>
@@ -20,6 +21,7 @@
     <el-main style="padding: 0; background: #f5f7fa;">
       <TaskWorkspace v-if="activeTab === 'workspace'" />
       <FileManagement v-if="activeTab === 'files'" />
+      <ApiGuide v-if="activeTab === 'api'" />
       <AdminPanel v-if="activeTab === 'admin'" />
     </el-main>
 
@@ -39,6 +41,7 @@ import MarkdownIt from 'markdown-it'
 import { useUserStore } from '../stores/user'
 import TaskWorkspace from './TaskWorkspace.vue'
 import FileManagement from './FileManagement.vue'
+import ApiGuide from './ApiGuide.vue'
 import AdminPanel from './AdminPanel.vue'
 
 const userStore = useUserStore()

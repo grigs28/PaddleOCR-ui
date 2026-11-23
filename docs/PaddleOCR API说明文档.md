@@ -2,9 +2,10 @@
 
 本文档说明 PaddleOCR Web UI 的 HTTP API，重点说明 **PDF → DOCX** 的分流规则：图片型 PDF 继续走 OCR 重建，非图片型 PDF 使用 exactdoc 直接转换以保留原版式、图片、页眉页脚和活动页码。
 
-- 服务地址：`http://<host>:5553`
+- 服务地址：**`http://192.168.0.8:5553/`**（固定）
 - 认证方式：`X-API-Key` 请求头，或浏览器 Cookie 会话
 - 所有接口返回 JSON，文件下载接口返回二进制流
+- Web 界面顶栏「API 说明」页提供同样的调用示例（含 DWG/DXF）
 
 ---
 
@@ -16,7 +17,15 @@
 X-API-Key: ak_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-API Key 在「管理面板 → API Key」或 `POST /auth/api-keys` 创建。使用 API Key 提交的任务优先级为 `1`，完成后 30 秒自动清理文件和数据库记录。
+### 获取 API Key
+
+1. 使用管理员账号登录 `http://192.168.0.8:5553/`
+2. 进入「管理后台」→「API Key 管理」→「新建 API Key」
+3. 复制生成的 `ak_...`，请求时放在 `X-API-Key` 请求头
+
+也可以用 Cookie 会话调用 `POST /auth/api-keys` 创建。文档中的 `ak_xxx`、`ak_xxxxxxxx` 都是占位符，请替换为真实 Key，不要泄露给他人。
+
+使用 API Key 提交的任务优先级为 `1`，完成后 30 秒自动清理文件和数据库记录，请及时下载结果。
 
 ### Cookie 会话
 
@@ -40,7 +49,10 @@ Content-Type: multipart/form-data
 | `high_precision` | string | 否 | `"true"` / `"false"`，仅 `vl16` 生效 |
 | `merge_pdf` | string | 否 | DWG→PDF 多页合并，默认 `"false"` |
 
-支持的输出格式：`markdown`、`json`、`txt`、`docx`、`dwg`（`dwg` 仅对 PDF 源文件生效）。
+支持的输出格式：`markdown`、`json`、`txt`、`docx`、`dwg`。
+
+- DWG/DXF 输入：`dwg` 表示“仅转换 PDF（保留 DXF）”，不做 OCR
+- PDF 输入：`dwg` 表示 PDF→DWG 转换
 
 ### 示例：PDF 转 DOCX
 
@@ -62,6 +74,59 @@ curl -X POST http://192.168.0.8:5553/api/v1/tasks \
 ```
 
 ---
+
+## 2.1 DWG / DXF 图纸
+
+DWG/DXF 会先经 ACADxPDF 服务转 **PDF + DXF**：
+
+- PDF 走识别引擎
+- DXF 文字直接提取（vl16 路径），无需 OCR
+
+### DWG → PDF + OCR（Markdown / JSON）
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@drawing.dwg" \
+  -F 'output_formats=["markdown","json"]' \
+  -F "merge_pdf=true"
+```
+
+### DWG / DXF 仅转 PDF（保留 DXF，不做 OCR）
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@drawing.dwg" \
+  -F 'output_formats=["dwg"]'
+```
+
+> 对 DWG/DXF 输入，`dwg` 是“仅转换 PDF”的标记，不会生成 DWG 文件。
+
+### PDF → DWG
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@drawing.pdf" \
+  -F 'output_formats=["dwg"]'
+```
+
+### DXF 文字直接提取
+
+```bash
+curl -X POST http://192.168.0.8:5553/api/v1/tasks \
+  -H "X-API-Key: ak_xxx" \
+  -F "file=@drawing.dxf" \
+  -F 'output_formats=["markdown","json","txt"]'
+```
+
+说明：
+
+- `merge_pdf=true` 合并 DWG 多页 PDF；默认 `false`（按图框分页）
+- 结果 ZIP 包含转换后的 PDF、DXF 和 Markdown/JSON 等结果文件
+- DXF 文字直接提取在 `vl16` 路径生效；`mineru`/`ppocrv6` 会把转换后的 PDF 送对应引擎
+- ACADxPDF 不可用时回退本地 `cad2x`（仅单页 PDF）
 
 ## 3. PDF → DOCX 分流规则
 
@@ -334,7 +399,7 @@ GET /api/version
 
 ```json
 {
-  "ui_version": "1.2.0",
+  "ui_version": "1.3.0",
   "engine_version": "PaddleOCR-VL-1.6-0.9B"
 }
 ```
