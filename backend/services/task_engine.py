@@ -14,6 +14,7 @@ from backend.config import get_settings
 from backend.database import async_session
 from backend.models.task import Task
 from backend.services.ocr_client import ocr_client
+from backend.services.pdf_docx import generate_docx
 from backend.services.progress_estimator import progress_estimator
 from backend.services.doc_converter import (
     is_libreoffice_available, convert_to_pdf, is_legacy_office,
@@ -152,6 +153,20 @@ class TaskEngine:
                 sem = self.pdf_semaphore
             else:
                 sem = self.image_semaphore
+
+            # 非图片型 PDF 且只要求 DOCX：直接 exactdoc 直转，跳过 OCR 引擎
+            _settings = get_settings()
+            if (
+                is_pdf_file(filename)
+                and set(output_formats) == {"docx"}
+                and _settings.pdf_docx_direct_enabled
+            ):
+                async with sem:
+                    if await self._process_pdf_docx(
+                        task_id, task.user_id, filename, file_path
+                    ):
+                        return
+                # exactdoc 不可用（图片型 PDF/依赖缺失/失败）→ 继续正常 OCR 流程
 
             # 非 VL 引擎（PP-OCRv6 / MinerU）走独立处理流程
             if engine in ("ppocrv6", "mineru"):
@@ -418,9 +433,20 @@ class TaskEngine:
                                 "markdown": md_text,
                             }, f, ensure_ascii=False, indent=2)
                     if "docx" in save_formats:
-                        docx_bytes = ExportService.md_to_docx(md_text)
-                        with open(os.path.join(result_dir, "result.docx"), "wb") as f:
-                            f.write(docx_bytes)
+                        _settings = get_settings()
+                        docx_source = await generate_docx(
+                            pdf_path=file_path,
+                            out_path=os.path.join(result_dir, "result.docx"),
+                            md_text=md_text,
+                            enabled=(
+                                _settings.pdf_docx_direct_enabled
+                                and is_pdf_file(filename)
+                            ),
+                            refine_rounds=_settings.pdf_docx_refine_rounds,
+                            max_pages=_settings.pdf_docx_max_pages,
+                            timeout_seconds=_settings.pdf_docx_timeout,
+                        )
+                        logger.info(f"任务 {task_id} DOCX 生成方式: {docx_source}")
 
                     # 计算处理用时
                     processing_seconds = int(time.monotonic() - wall_start)
@@ -493,6 +519,103 @@ class TaskEngine:
                     await _run_with_sem()
             else:
                 await _run_with_sem()
+
+    async def _process_pdf_docx(
+        self, task_id: int, user_id: int, filename: str, file_path: str
+    ) -> bool:
+        """docx-only 文本型 PDF 快速路径：exactdoc 直转，不走 OCR。
+
+        返回 True 表示任务已成功完成；False 表示 exactdoc 不可用，调用方
+        继续走正常 OCR 流程。
+        """
+        from backend.services.pdf_docx import docx_to_text, try_exactdoc
+
+        settings = get_settings()
+        result_dir = get_result_path(str(task_id))
+        docx_path = os.path.join(result_dir, "result.docx")
+
+        await self._update_status(task_id, "processing")
+        await self._update_field(task_id, "started_at", datetime.now())
+        wall_start = time.monotonic()
+        await self._push_progress(task_id, user_id, 10)
+
+        ok = await try_exactdoc(
+            file_path,
+            docx_path,
+            refine_rounds=settings.pdf_docx_refine_rounds,
+            max_pages=settings.pdf_docx_max_pages,
+            timeout_seconds=settings.pdf_docx_timeout,
+        )
+        if not ok:
+            return False
+
+        await self._push_progress(task_id, user_id, 90)
+
+        # 预览用 result.md（纯文本；版式以 result.docx 为准）
+        md_text = await asyncio.to_thread(docx_to_text, docx_path)
+        if not md_text:
+            md_text = "（已生成 DOCX，请下载查看）"
+        with open(os.path.join(result_dir, "result.md"), "w", encoding="utf-8") as f:
+            f.write(md_text)
+
+        # 保留源文件
+        shutil.copy2(file_path, os.path.join(result_dir, f"source_{filename}"))
+
+        pages = 0
+        try:
+            import pypdf
+
+            pages = len(pypdf.PdfReader(file_path).pages)
+        except Exception:
+            pass
+
+        processing_seconds = int(time.monotonic() - wall_start)
+        completed_at = datetime.now()
+        async with async_session() as s:
+            await s.execute(
+                update(Task)
+                .where(Task.id == task_id)
+                .values(
+                    result_path=result_dir,
+                    progress=100,
+                    page_total=pages,
+                    page_current=pages,
+                    processing_time=processing_seconds,
+                    completed_at=completed_at,
+                    status="completed",
+                )
+            )
+            await s.commit()
+
+        logger.info(
+            f"任务 {task_id} exactdoc 直转完成, {pages}页, 用时{processing_seconds}秒"
+        )
+
+        try:
+            from backend.ws.progress import progress_manager
+
+            await progress_manager.send_progress(
+                user_id,
+                task_id,
+                {
+                    "status": "completed",
+                    "progress": 100,
+                    "processing_time": processing_seconds,
+                },
+            )
+        except Exception:
+            pass
+
+        # API 任务：延迟清理（与正常流程一致）
+        async with async_session() as s:
+            r = await s.execute(select(Task.priority).where(Task.id == task_id))
+            priority = r.scalar_one_or_none()
+        if priority == 1:
+            asyncio.create_task(
+                self._cleanup_api_task(task_id, result_dir, file_path)
+            )
+
+        return True
 
     async def _process_engine_task(self, task_id: int, user_id: int, filename: str, file_path: str, engine: str):
         """PP-OCRv6 / MinerU 引擎处理流程（独立于 VL 流程）
@@ -585,9 +708,20 @@ class TaskEngine:
                 with open(os.path.join(result_dir, "result.json"), "w", encoding="utf-8") as f:
                     json.dump({"pages": ocr_result["pages"], "markdown": md_text}, f, ensure_ascii=False, indent=2)
             if "docx" in save_formats:
-                docx_bytes = ExportService.md_to_docx(md_text)
-                with open(os.path.join(result_dir, "result.docx"), "wb") as f:
-                    f.write(docx_bytes)
+                _settings = get_settings()
+                docx_source = await generate_docx(
+                    pdf_path=file_path,
+                    out_path=os.path.join(result_dir, "result.docx"),
+                    md_text=md_text,
+                    enabled=(
+                        _settings.pdf_docx_direct_enabled
+                        and is_pdf_file(filename)
+                    ),
+                    refine_rounds=_settings.pdf_docx_refine_rounds,
+                    max_pages=_settings.pdf_docx_max_pages,
+                    timeout_seconds=_settings.pdf_docx_timeout,
+                )
+                logger.info(f"任务 {task_id} [{engine}] DOCX 生成方式: {docx_source}")
 
             # 保留源文件
             source_dest = os.path.join(result_dir, f"source_{filename}")

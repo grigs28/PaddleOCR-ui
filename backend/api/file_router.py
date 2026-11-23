@@ -206,6 +206,18 @@ async def download_file(file_id: int, request: Request, format: str = Query("zip
                 headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(base_name)}.json"},
             )
         elif format == "docx":
+            # 优先返回任务处理时保存的 result.docx（非图片型 PDF 为 exactdoc 直转产物）；
+            # 未勾选 docx 时回退到从 result.md 现场生成。
+            docx_path = (
+                os.path.join(task.result_path, "result.docx")
+                if task.result_path else None
+            )
+            if docx_path and os.path.exists(docx_path):
+                return FileResponse(
+                    docx_path,
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    filename=f"{base_name}.docx",
+                )
             docx_bytes = ExportService.md_to_docx(md_text)
             return StreamingResponse(
                 io.BytesIO(docx_bytes),

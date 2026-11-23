@@ -25,24 +25,32 @@ def _sync_env_file(settings):
     env_path = os.path.normpath(env_path)
 
     existing = {}
+    comments = []
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:
             for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, _, v = line.partition("=")
-                    existing[k.strip()] = v.strip()
+                raw = line.rstrip("\n")
+                stripped = raw.strip()
+                if stripped.startswith("#"):
+                    comments.append(raw)
+                elif stripped and "=" in stripped:
+                    k, _, v = stripped.partition("=")
+                    # 统一大写键，避免同名的大小写键互相覆盖
+                    existing[k.strip().upper()] = v.strip()
 
     # 从 pydantic settings 所有字段补充
     changed = False
     for field_name in settings.model_fields:
+        key = field_name.upper()
         val = str(getattr(settings, field_name))
-        if field_name not in existing:
-            existing[field_name] = val
+        if key not in existing:
+            existing[key] = val
             changed = True
 
     if changed:
         with open(env_path, "w", encoding="utf-8") as f:
+            for comment in comments:
+                f.write(f"{comment}\n")
             for k, v in existing.items():
                 f.write(f"{k}={v}\n")
 

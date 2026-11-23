@@ -19,6 +19,10 @@ EDITABLE_SETTINGS = {
     "mineru_poll_timeout": {"label": "MinerU 轮询超时（秒）", "type": "int", "min": 300, "max": 7200},
     "mineru_poll_interval": {"label": "MinerU 轮询间隔（秒）", "type": "int", "min": 1, "max": 60},
     "mineru_query_timeout": {"label": "MinerU 单次查询超时（秒）", "type": "int", "min": 5, "max": 120},
+    # 非图片型 PDF 直转 DOCX（exactdoc）
+    "pdf_docx_refine_rounds": {"label": "PDF→DOCX 精修轮数（0=快速）", "type": "int", "min": 0, "max": 5},
+    "pdf_docx_max_pages": {"label": "PDF→DOCX 最大页数（0=不限）", "type": "int", "min": 0, "max": 5000},
+    "pdf_docx_timeout": {"label": "PDF→DOCX 转换超时（秒）", "type": "int", "min": 60, "max": 7200},
     # 并发配置
     "image_semaphore_size": {"label": "图片并发数", "type": "int", "min": 1, "max": 20},
     "pdf_semaphore_size": {"label": "PDF 并发数", "type": "int", "min": 1, "max": 20},
@@ -104,28 +108,35 @@ def _save_to_env(updates: dict):
 
     # 读取现有 .env（包含原始启动配置）
     existing = {}
+    comments = []
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:
             for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, _, v = line.partition("=")
-                    existing[k.strip()] = v.strip()
+                raw = line.rstrip("\n")
+                stripped = raw.strip()
+                if stripped.startswith("#"):
+                    comments.append(raw)
+                elif stripped and "=" in stripped:
+                    k, _, v = stripped.partition("=")
+                    # 统一大写键，避免同名的大小写键互相覆盖
+                    existing[k.strip().upper()] = v.strip()
 
     # 也从当前环境变量补充（--env-file 注入的可能不在文件中）
     import os as _os
     for key in updates:
         env_key = key.upper()
         env_val = _os.environ.get(env_key)
-        if env_val is not None and key not in existing:
-            existing[key] = env_val
+        if env_val is not None and env_key not in existing:
+            existing[env_key] = env_val
 
     # 更新值
     for key, value in updates.items():
-        existing[key] = str(value)
+        existing[key.upper()] = str(value)
 
     # 写回
     with open(env_path, "w", encoding="utf-8") as f:
+        for comment in comments:
+            f.write(f"{comment}\n")
         for k, v in existing.items():
             f.write(f"{k}={v}\n")
 

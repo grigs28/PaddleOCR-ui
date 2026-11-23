@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     ocr_vlm_max_pixels_high: int = 12700 * 28 * 28         # ~10MP（小字可读阈值）
     ocr_vlm_table_max_pixels_high: int = 25400 * 28 * 28   # ~20MP（表格区域）
 
+    # 非图片型 PDF 直转 DOCX（exactdoc，refine 3 保留原版式/图片/页眉页脚）
+    pdf_docx_direct_enabled: bool = True
+    pdf_docx_refine_rounds: int = 3      # 0=快速；3=默认精修，页数最接近原文
+    pdf_docx_max_pages: int = 500        # 0=不限制；超过则回退 OCR→MD→DOCX
+    pdf_docx_timeout: int = 1800         # 单次转换超时（秒）
+
     # 日志配置
     log_file: str = "data/logs/app.log"
 

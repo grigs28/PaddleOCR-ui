@@ -4,6 +4,20 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 **版本号规则：UI 顶栏版本号自动读取本文件中最新一个 `## [x.y.z]` 条目。**
 
+## [1.2.0] - 2026-11-23
+
+### 新增
+- 非图片型 PDF 直转 DOCX：有文本层的 PDF 使用 exactdoc（refine 3）直接生成 DOCX，保留原版式、图片、页眉页脚和活动页码
+- 管理面板新增 PDF→DOCX 精修轮数、最大页数、转换超时配置
+
+### 变更
+- `output_formats` 含 `docx` 的 PDF 任务，DOCX 生成由 Markdown 转换改为 exactdoc 直转；图片型 PDF 仍走 OCR→Markdown→DOCX
+- 新增依赖 `exactdoc==0.3.0b3`（Apache-2.0）
+
+### 修复
+- `.env` 大小写键重复导致同名配置互相覆盖；启动同步和管理面板写回统一使用大写键
+- DOCX 下载优先返回任务结果目录中已保存的 `result.docx`，避免 exactdoc 直转产物被 Markdown 重新生成覆盖
+
 ## [1.1.2] - 2026-09-09
 
 ### 新增
