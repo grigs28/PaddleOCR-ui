@@ -186,7 +186,19 @@ const taskFields = [
 
 const copy = async (text) => {
   try {
-    await navigator.clipboard.writeText(text)
+    // HTTP 部署下 navigator.clipboard 不可用，回退到 textarea + execCommand
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.left = '-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
     ElMessage.success('已复制')
   } catch {
     ElMessage.error('复制失败，请手动选择')
