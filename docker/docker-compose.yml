@@ -20,7 +20,8 @@ services:
       - /etc/localtime:/etc/localtime:ro   # 容器时区与宿主机一致（UTC→CST）
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5553/health"]
+      # 镜像未安装 curl，用 Python 自带的 urllib 做健康检查
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5553/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
